@@ -43,8 +43,8 @@ func (s *PostgresStore) ListSchemas(ctx context.Context) ([]core.SchemaDefinitio
 }
 
 func (s *PostgresStore) CreateItem(ctx context.Context, item core.Item) error {
-	query := `INSERT INTO items (id, name, base_metadata)
-	          VALUES (:id, :name, :base_metadata)`
+	query := `INSERT INTO items (id, name, image_url, base_metadata)
+	          VALUES (:id, :name, :image_url, :base_metadata)`
 	_, err := s.db.NamedExecContext(ctx, query, item)
 	return err
 }
@@ -65,9 +65,10 @@ func (s *PostgresStore) ListItems(ctx context.Context, searchTerm string) ([]cor
 }
 
 func (s *PostgresStore) UpdateUserMetadata(ctx context.Context, meta core.UserMetadata) error {
-	query := `INSERT INTO user_metadata (user_id, item_id, overrides, open_data, updated_at)
-	          VALUES (:user_id, :item_id, :overrides, :open_data, CURRENT_TIMESTAMP)
+	query := `INSERT INTO user_metadata (user_id, item_id, custom_image_url, overrides, open_data, updated_at)
+	          VALUES (:user_id, :item_id, :custom_image_url, :overrides, :open_data, CURRENT_TIMESTAMP)
 	          ON CONFLICT (user_id, item_id) DO UPDATE SET
+	          custom_image_url = EXCLUDED.custom_image_url,
 	          overrides = EXCLUDED.overrides,
 	          open_data = EXCLUDED.open_data,
 	          updated_at = CURRENT_TIMESTAMP`

@@ -28,6 +28,7 @@ curl -X POST "$API_URL/items" \
      -d '{
        "id": "iron_sword",
        "name": "Iron Sword",
+       "image_url": "https://cdn.gearstack.com/assets/iron_sword.jpg",
        "base_metadata": {
          "combat_stats": {
            "damage": 10,
@@ -37,11 +38,12 @@ curl -X POST "$API_URL/items" \
      }'
 echo -e "\n"
 
-echo "3. Adding User Overrides (Sharpened Sword + Personal Note)..."
+echo "3. Adding User Overrides (Custom Photo + Sharpened Stats)..."
 curl -X POST "$API_URL/items/iron_sword/metadata" \
      -H "Content-Type: application/json" \
      -H "X-User-ID: $USER_ID" \
      -d '{
+       "custom_image_url": "https://my-cloud-storage.com/user_999/my_shiny_sword.png",
        "overrides": {
          "combat_stats": {
            "damage": 15
