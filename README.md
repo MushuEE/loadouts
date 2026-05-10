@@ -5,48 +5,37 @@ This is the "Thick Client" prototype for GearStack, a telescoping inventory mana
 🌟 Core Features
 
 1. Telescoping Inventory System
-
 Unlike standard flat lists, this inventory is recursive:
-
-Root: Represents the user (slots for Worn Gear, Pack, etc.).
-
-Nesting: Items can provide "Slots". (e.g., A "Backpack" provides a "Main Compartment" and "Side Pockets").
-
-Zoom: Users can drill down into any container to manage its contents specifically.
+- **Root**: Represents the user (slots for Worn Gear, Pack, etc.).
+- **Nesting**: Items can provide "Slots". (e.g., A "Backpack" provides a "Main Compartment" and "Side Pockets").
+- **Zoom**: Users can drill down into any container to manage its contents specifically.
 
 2. 4x8 Interactive Grid
-
-Fixed Layout: Renders a 32-cell grid (4 columns x 8 rows) for consistent "Tetris-style" organization.
-
-Drag & Drop: Native HTML5 DnD implementation allows users to rearrange items within the grid.
-
-Persistence: The grid position (index 0-31) of every item is tracked in the state, even when zooming in/out.
+- **Fixed Layout**: Renders a 32-cell grid (4 columns x 8 rows) for consistent "Tetris-style" organization.
+- **Drag & Drop**: Native HTML5 DnD implementation allows users to rearrange items within the grid.
+- **Persistence**: The grid position (index 0-31) of every item is tracked in the state, even when zooming in/out.
 
 3. Smart Stats
-
-Recursive Calculation: Weights and costs are summed from the bottom up (e.g., pills inside a bottle inside a ditty bag inside a pack).
-
-Base Weight vs. Total: Automatically excludes items marked consumable: true (food, water, fuel) from the Base Weight calculation—a critical metric for hikers.
+- **Recursive Calculation**: Weights and costs are summed from the bottom up (e.g., pills inside a bottle inside a ditty bag inside a pack).
+- **Base Weight vs. Total**: Automatically excludes items marked consumable: true (food, water, fuel) from the Base Weight calculation—a critical metric for hikers.
 
 4. The Garage (Database)
+- **Master List**: A searchable database of all available gear.
+- **Smart Import (Prototype)**: A simulation of the "Link Unfurling" feature where pasting a URL (e.g., Backcountry.com) scrapes item details.
 
-Master List: A searchable database of all available gear.
-
-Smart Import (Prototype): A simulation of the "Link Unfurling" feature where pasting a URL (e.g., Backcountry.com) scrapes item details.
+5. Polyglot Backend (Phase 2)
+- **Flexible Metadata**: Uses PostgreSQL `JSONB` to support arbitrary metadata fields per item, validated against a versioned Schema Registry.
+- **Layered Namespaces**: Merges Global base data with User-specific overrides on-the-fly, cached in Redis for high-performance point lookups.
+- **Eventual Consistency**: Community-driven metrics (ratings, etc.) are materialized for fast searching and sorting without sacrificing the flexibility of the polyglot store.
 
 🛠 Tech Stack
-
-Framework: React (Vite)
-
-Styling: Tailwind CSS
-
-Icons: Lucide-React
-
-State: Local React State (Migrating to React Query + Golang in Phase 2)
+- **Frontend**: React (Vite) + Tailwind CSS
+- **Backend**: Go (Golang)
+- **Database**: PostgreSQL (JSONB) + Redis (Caching)
+- **Validation**: JSON Schema (Strict Write-time validation)
 
 🚀 Running Locally
 
 cd frontend
 npm install
 npm run dev -- --host
-
