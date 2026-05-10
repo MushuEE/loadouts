@@ -85,7 +85,7 @@ func (s *InventoryService) GetMergedItem(ctx context.Context, itemID, userID str
 	return core.Merge(item, userMeta), nil
 }
 
-func (s *InventoryService) UpdateMetadata(ctx context.Context, userID, itemID string, overrides core.Metadata, openData core.Metadata) error {
+func (s *InventoryService) UpdateMetadata(ctx context.Context, userID, itemID string, customImageURL string, overrides core.Metadata, openData core.Metadata) error {
 	// Validate overrides against schemas
 	for schemaID, metadata := range overrides {
 		schema, err := s.store.GetSchema(ctx, schemaID, "v1")
@@ -97,10 +97,11 @@ func (s *InventoryService) UpdateMetadata(ctx context.Context, userID, itemID st
 	}
 
 	meta := core.UserMetadata{
-		UserID:    userID,
-		ItemID:    itemID,
-		Overrides: overrides,
-		OpenData:  openData,
+		UserID:         userID,
+		ItemID:         itemID,
+		CustomImageURL: customImageURL,
+		Overrides:      overrides,
+		OpenData:       openData,
 	}
 
 	return s.store.UpdateUserMetadata(ctx, meta)

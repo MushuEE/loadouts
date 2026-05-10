@@ -38,3 +38,7 @@ Build a flexible inventory metadata system that supports:
     - **Global Search**: Restricted to Global/Pre-aggregated data.
     - **Community Stats**: Materialized aggregates (e.g., average ratings) updated via eventually consistent event workers.
 - **Schema Evolution**: Immutable versions + "Lazy Migration on Read" using author-provided migration functions.
+- **Images**:
+    - **Global**: `image_url` as a first-class column in the `items` table.
+    - **User Override**: `custom_image_url` in `user_metadata` for personal item photos.
+    - **Optimization**: Use "Resize-on-the-fly" via URL query parameters (e.g., `?w=64`) for grid thumbnails.

@@ -7,8 +7,9 @@ import (
 
 func TestMerge(t *testing.T) {
 	item := Item{
-		ID:   "sword_01",
-		Name: "Iron Sword",
+		ID:       "sword_01",
+		Name:     "Iron Sword",
+		ImageURL: "https://cdn.com/iron_sword.jpg",
 		BaseMetadata: Metadata{
 			"combat": map[string]interface{}{
 				"damage": 10,
@@ -21,8 +22,9 @@ func TestMerge(t *testing.T) {
 	}
 
 	userMeta := &UserMetadata{
-		UserID: "user_123",
-		ItemID: "sword_01",
+		UserID:         "user_123",
+		ItemID:         "sword_01",
+		CustomImageURL: "https://my-photos.com/my_sword.jpg",
 		Overrides: Metadata{
 			"combat": map[string]interface{}{
 				"damage": 15, // Override
@@ -51,6 +53,10 @@ func TestMerge(t *testing.T) {
 	}
 
 	merged := Merge(item, userMeta)
+
+	if merged.ImageURL != "https://my-photos.com/my_sword.jpg" {
+		t.Errorf("ImageURL override failed. Expected user image, got %s", merged.ImageURL)
+	}
 
 	// Since deepCopy uses JSON marshal/unmarshal, ints might become floats.
 	// We'll marshal/unmarshal our expected to match that behavior for the test.
