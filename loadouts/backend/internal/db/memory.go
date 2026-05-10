@@ -10,17 +10,24 @@ import (
 )
 
 type MemoryStore struct {
-	mu            sync.RWMutex
-	schemas       map[string]core.SchemaDefinition
-	items         map[string]core.Item
+	mu           sync.RWMutex
+	schemas      map[string]core.SchemaDefinition
+	items        map[string]core.Item
 	userMetadata map[string]core.UserMetadata
+	suppliers    map[string]core.Supplier
+	itemSources  map[string][]core.ItemSource
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		schemas:       make(map[string]core.SchemaDefinition),
-		items:         make(map[string]core.Item),
+		schemas:      make(map[string]core.SchemaDefinition),
+		items:        make(map[string]core.Item),
 		userMetadata: make(map[string]core.UserMetadata),
+		suppliers: map[string]core.Supplier{
+			"amazon": {ID: "amazon", Name: "Amazon", BaseURL: "https://www.amazon.com", AffiliateTemplate: "{{.BaseURL}}/dp/{{.ProductID}}?tag=loadouts-20"},
+			"rei":    {ID: "rei", Name: "REI", BaseURL: "https://www.rei.com", AffiliateTemplate: "{{.BaseURL}}/product/{{.ProductID}}?cm_mmc=aff_AL-_-loadouts"},
+		},
+		itemSources: make(map[string][]core.ItemSource),
 	}
 }
 
@@ -99,4 +106,39 @@ func (s *MemoryStore) GetUserMetadata(ctx context.Context, userID, itemID string
 		return nil, fmt.Errorf("not found")
 	}
 	return &meta, nil
+}
+
+func (s *MemoryStore) GetItemSources(ctx context.Context, itemID string) ([]core.ItemSource, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.itemSources[itemID], nil
+}
+
+func (s *MemoryStore) GetSupplier(ctx context.Context, id string) (core.Supplier, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sup, ok := s.suppliers[id]
+	if !ok {
+		return core.Supplier{}, fmt.Errorf("supplier not found")
+	}
+	return sup, nil
+}
+
+func (s *MemoryStore) GetItemBySource(ctx context.Context, supplierID, productID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for itemID, sources := range s.itemSources {
+		for _, src := range sources {
+			if src.SupplierID == supplierID && src.ProductID == productID {
+				return itemID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("not found")
+}
+
+func (s *MemoryStore) AddItemSource(itemID string, src core.ItemSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.itemSources[itemID] = append(s.itemSources[itemID], src)
 }
