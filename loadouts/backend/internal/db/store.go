@@ -18,6 +18,11 @@ type Store interface {
 	GetItem(ctx context.Context, id string) (core.Item, error)
 	ListItems(ctx context.Context, query string) ([]core.Item, error) // Simplified search
 
+	// Item Sources & Suppliers
+	GetItemSources(ctx context.Context, itemID string) ([]core.ItemSource, error)
+	GetSupplier(ctx context.Context, id string) (core.Supplier, error)
+	GetItemBySource(ctx context.Context, supplierID, productID string) (string, error) // Returns itemID
+
 	// User Metadata
 	UpdateUserMetadata(ctx context.Context, meta core.UserMetadata) error
 	GetUserMetadata(ctx context.Context, userID, itemID string) (*core.UserMetadata, error)

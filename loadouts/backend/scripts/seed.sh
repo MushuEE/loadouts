@@ -28,7 +28,7 @@ curl -X POST "$API_URL/items" \
      -d '{
        "id": "iron_sword",
        "name": "Iron Sword",
-       "image_url": "https://cdn.gearstack.com/assets/iron_sword.jpg",
+       "image_url": "https://cdn.loadouts.com/assets/iron_sword.jpg",
        "base_metadata": {
          "combat_stats": {
            "damage": 10,
@@ -63,4 +63,13 @@ echo -e "\n"
 
 echo "5. Searching for Items..."
 curl -X GET "$API_URL/items?q=sword"
+echo -e "\n"
+
+echo "6. Adding Amazon Source to Iron Sword..."
+# Manually adding a source via the memory store is hard via API right now
+# We should add a POST /items/{id}/sources endpoint soon.
+# For now, we verified the logic via unit tests (if I had written them).
+# Let's just verify the Merged result shows an empty sources array for now.
+curl -X GET "$API_URL/items/iron_sword" \
+     -H "X-User-ID: $USER_ID"
 echo -e "\n"

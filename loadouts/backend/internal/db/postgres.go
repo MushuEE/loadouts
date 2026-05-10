@@ -85,3 +85,24 @@ func (s *PostgresStore) GetUserMetadata(ctx context.Context, userID, itemID stri
 	}
 	return &meta, nil
 }
+
+func (s *PostgresStore) GetItemSources(ctx context.Context, itemID string) ([]core.ItemSource, error) {
+	var sources []core.ItemSource
+	query := `SELECT * FROM item_sources WHERE item_id = $1`
+	err := s.db.SelectContext(ctx, &sources, query, itemID)
+	return sources, err
+}
+
+func (s *PostgresStore) GetSupplier(ctx context.Context, id string) (core.Supplier, error) {
+	var supplier core.Supplier
+	query := `SELECT * FROM suppliers WHERE id = $1`
+	err := s.db.GetContext(ctx, &supplier, query, id)
+	return supplier, err
+}
+
+func (s *PostgresStore) GetItemBySource(ctx context.Context, supplierID, productID string) (string, error) {
+	var itemID string
+	query := `SELECT item_id FROM item_sources WHERE supplier_id = $1 AND product_id = $2`
+	err := s.db.GetContext(ctx, &itemID, query, supplierID, productID)
+	return itemID, err
+}

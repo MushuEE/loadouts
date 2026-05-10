@@ -1,6 +1,6 @@
-GearStack Frontend (Prototype)
+Loadouts Frontend (Prototype)
 
-This is the "Thick Client" prototype for GearStack, a telescoping inventory management system for backpacking and cycling gear. It implements a game-like UI (similar to OSRS/Tarkov) using React and Tailwind CSS.
+This is the "Thick Client" prototype for Loadouts, a telescoping inventory management system for backpacking and cycling gear. It implements a game-like UI (similar to OSRS/Tarkov) using React and Tailwind CSS.
 
 🌟 Core Features
 

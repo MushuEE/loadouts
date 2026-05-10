@@ -59,5 +59,31 @@ type MergedItem struct {
 	ID       string                 `json:"id"`
 	Name     string                 `json:"name"`
 	ImageURL string                 `json:"image_url"`
+	Sources  []ResolvedSource       `json:"sources"`
 	Metadata map[string]interface{} `json:"metadata"`
+}
+
+// Supplier represents a retailer.
+type Supplier struct {
+	ID                string `json:"id" db:"id"`
+	Name              string `json:"name" db:"name"`
+	BaseURL           string `json:"base_url" db:"base_url"`
+	AffiliateTemplate string `json:"affiliate_template" db:"affiliate_template"`
+}
+
+// ItemSource links an item to a supplier.
+type ItemSource struct {
+	ID          string    `json:"id" db:"id"`
+	ItemID      string    `json:"item_id" db:"item_id"`
+	SupplierID  string    `json:"supplier_id" db:"supplier_id"`
+	ProductID   string    `json:"product_id" db:"product_id"`
+	Price       float64   `json:"price" db:"price"`
+	LastUpdated time.Time `json:"last_updated" db:"last_updated"`
+}
+
+// ResolvedSource is the final templated source for the UI.
+type ResolvedSource struct {
+	SupplierName string  `json:"supplier_name"`
+	Price        float64 `json:"price"`
+	URL          string  `json:"url"`
 }

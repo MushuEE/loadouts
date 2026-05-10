@@ -76,13 +76,36 @@ func (s *InventoryService) GetMergedItem(ctx context.Context, itemID, userID str
 		return core.MergedItem{}, err
 	}
 
+	// 1. Fetch and Resolve Sources
+	sources, err := s.store.GetItemSources(ctx, itemID)
+	var resolvedSources []core.ResolvedSource
+	if err == nil {
+		for _, src := range sources {
+			supplier, err := s.store.GetSupplier(ctx, src.SupplierID)
+			if err == nil {
+				url, err := core.ResolveSourceURL(supplier, src)
+				if err == nil {
+					resolvedSources = append(resolvedSources, core.ResolvedSource{
+						SupplierName: supplier.Name,
+						Price:        src.Price,
+						URL:          url,
+					})
+				}
+			}
+		}
+	}
+
+	// 2. Fetch User Metadata
 	userMeta, err := s.store.GetUserMetadata(ctx, userID, itemID)
 	if err != nil {
 		// It's fine if user metadata doesn't exist, just merge with nil
 		userMeta = nil
 	}
 
-	return core.Merge(item, userMeta), nil
+	merged := core.Merge(item, userMeta)
+	merged.Sources = resolvedSources
+
+	return merged, nil
 }
 
 func (s *InventoryService) UpdateMetadata(ctx context.Context, userID, itemID string, customImageURL string, overrides core.Metadata, openData core.Metadata) error {
