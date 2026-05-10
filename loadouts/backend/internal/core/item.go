@@ -23,6 +23,7 @@ type SchemaDefinition struct {
 type Item struct {
 	ID           string    `json:"id" db:"id"`
 	Name         string    `json:"name" db:"name"`
+	ImageURL     string    `json:"image_url" db:"image_url"`
 	BaseMetadata Metadata  `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
@@ -30,11 +31,12 @@ type Item struct {
 
 // UserMetadata represents user-specific overrides or extensions of an item.
 type UserMetadata struct {
-	UserID    string    `json:"user_id" db:"user_id"`
-	ItemID    string    `json:"item_id" db:"item_id"`
-	Overrides Metadata  `json:"overrides" db:"overrides"` // Namespaced by SchemaID
-	OpenData  Metadata  `json:"open_data" db:"open_data"` // The "OpenSchema" Wild West
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	UserID         string    `json:"user_id" db:"user_id"`
+	ItemID         string    `json:"item_id" db:"item_id"`
+	CustomImageURL string    `json:"custom_image_url" db:"custom_image_url"`
+	Overrides      Metadata  `json:"overrides" db:"overrides"` // Namespaced by SchemaID
+	OpenData       Metadata  `json:"open_data" db:"open_data"` // The "OpenSchema" Wild West
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Metadata is a helper type for JSONB fields
@@ -56,5 +58,6 @@ func (m *Metadata) Scan(value interface{}) error {
 type MergedItem struct {
 	ID       string                 `json:"id"`
 	Name     string                 `json:"name"`
+	ImageURL string                 `json:"image_url"`
 	Metadata map[string]interface{} `json:"metadata"`
 }

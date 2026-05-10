@@ -81,15 +81,16 @@ func (h *ItemHandler) UpdateMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Overrides core.Metadata `json:"overrides"`
-		OpenData  core.Metadata `json:"open_data"`
+		CustomImageURL string        `json:"custom_image_url"`
+		Overrides      core.Metadata `json:"overrides"`
+		OpenData       core.Metadata `json:"open_data"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := h.svc.UpdateMetadata(r.Context(), userID, itemID, req.Overrides, req.OpenData); err != nil {
+	if err := h.svc.UpdateMetadata(r.Context(), userID, itemID, req.CustomImageURL, req.Overrides, req.OpenData); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

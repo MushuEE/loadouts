@@ -8,6 +8,7 @@ import (
 // It also attaches the OpenData (OpenSchema) to the final result.
 func Merge(item Item, userMeta *UserMetadata) MergedItem {
 	mergedMetadata := make(map[string]interface{})
+	finalImageURL := item.ImageURL
 
 	// 1. Start with Base Metadata
 	for k, v := range item.BaseMetadata {
@@ -34,11 +35,17 @@ func Merge(item Item, userMeta *UserMetadata) MergedItem {
 		if len(userMeta.OpenData) > 0 {
 			mergedMetadata["_open"] = deepCopy(userMeta.OpenData)
 		}
+
+		// 4. Handle Image Override
+		if userMeta.CustomImageURL != "" {
+			finalImageURL = userMeta.CustomImageURL
+		}
 	}
 
 	return MergedItem{
 		ID:       item.ID,
 		Name:     item.Name,
+		ImageURL: finalImageURL,
 		Metadata: mergedMetadata,
 	}
 }
