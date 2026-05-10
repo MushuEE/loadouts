@@ -9,7 +9,7 @@ func TestMerge(t *testing.T) {
 	item := Item{
 		ID:   "sword_01",
 		Name: "Iron Sword",
-		BaseMetadata: map[string]interface{}{
+		BaseMetadata: Metadata{
 			"combat": map[string]interface{}{
 				"damage": 10,
 				"speed":  1.2,
@@ -23,7 +23,7 @@ func TestMerge(t *testing.T) {
 	userMeta := &UserMetadata{
 		UserID: "user_123",
 		ItemID: "sword_01",
-		Overrides: map[string]interface{}{
+		Overrides: Metadata{
 			"combat": map[string]interface{}{
 				"damage": 15, // Override
 			},
@@ -31,7 +31,7 @@ func TestMerge(t *testing.T) {
 				"glow": true, // Extension
 			},
 		},
-		OpenData: map[string]interface{}{
+		OpenData: Metadata{
 			"my_note": "A gift from the king",
 		},
 	}

@@ -1,7 +1,9 @@
 package core
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -19,20 +21,35 @@ type SchemaDefinition struct {
 
 // Item represents the global base item in the metadata store.
 type Item struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	BaseMetadata map[string]interface{} `json:"base_metadata"` // Namespaced by SchemaID
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID           string    `json:"id" db:"id"`
+	Name         string    `json:"name" db:"name"`
+	BaseMetadata Metadata  `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // UserMetadata represents user-specific overrides or extensions of an item.
 type UserMetadata struct {
-	UserID    string                 `json:"user_id"`
-	ItemID    string                 `json:"item_id"`
-	Overrides map[string]interface{} `json:"overrides"`   // Namespaced by SchemaID
-	OpenData  map[string]interface{} `json:"open_data"`   // The "OpenSchema" Wild West
-	UpdatedAt time.Time              `json:"updated_at"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	ItemID    string    `json:"item_id" db:"item_id"`
+	Overrides Metadata  `json:"overrides" db:"overrides"` // Namespaced by SchemaID
+	OpenData  Metadata  `json:"open_data" db:"open_data"` // The "OpenSchema" Wild West
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// Metadata is a helper type for JSONB fields
+type Metadata map[string]interface{}
+
+func (m Metadata) Value() (driver.Value, error) {
+	return json.Marshal(m)
+}
+
+func (m *Metadata) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("type assertion to []byte failed")
+	}
+	return json.Unmarshal(b, m)
 }
 
 // MergedItem is the final object served to the user after merging layers.

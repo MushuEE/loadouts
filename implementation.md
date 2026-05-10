@@ -31,6 +31,9 @@ Build a flexible inventory metadata system that supports:
     - **Global Store**: Base item data.
     - **User Store**: User-specific overrides/deltas.
     - **Deep Merge**: Backend merges layers on-the-fly (cached in Redis).
+- **Bloom Filter**: 
+    - **Current**: In-memory "Negative Cache" to prevent ID collisions and unnecessary DB lookups.
+    - **Production Scaling**: Transition to **Redis Bloom** for a shared, persistent Bloom filter across multiple backend instances.
 - **Search Engine**: 
     - **Global Search**: Restricted to Global/Pre-aggregated data.
     - **Community Stats**: Materialized aggregates (e.g., average ratings) updated via eventually consistent event workers.
