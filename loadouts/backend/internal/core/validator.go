@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -24,5 +25,22 @@ func ValidateMetadata(schemaDef SchemaDefinition, metadata interface{}) error {
 		return fmt.Errorf("validation failed for schema %s (v%s):\n%s", schemaDef.ID, schemaDef.Version, errMsgs)
 	}
 
+	return nil
+}
+
+// ValidateSchemaDocument compiles a JSON Schema document without validating anything
+// against it. Plugins ship schemas in their manifests, and a schema that does not compile
+// would reject every metadata write it is supposed to gate, so it is checked at publish.
+func ValidateSchemaDocument(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return fmt.Errorf("schema definition is empty")
+	}
+	var doc interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("schema definition is not valid JSON: %w", err)
+	}
+	if _, err := gojsonschema.NewSchema(gojsonschema.NewGoLoader(doc)); err != nil {
+		return fmt.Errorf("schema definition is not a valid JSON Schema: %w", err)
+	}
 	return nil
 }

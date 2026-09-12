@@ -73,4 +73,28 @@ type Store interface {
 	ListLoadouts(ctx context.Context, query core.DiscoverQuery) ([]core.Loadout, error)
 	ReplaceLoadoutEntries(ctx context.Context, loadoutID string, entries []core.LoadoutEntry) error
 	ListLoadoutEntries(ctx context.Context, loadoutID string) ([]core.LoadoutEntry, error)
+
+	// Plugins
+	CreatePlugin(ctx context.Context, plugin core.Plugin) error
+	UpdatePlugin(ctx context.Context, plugin core.Plugin) error
+	GetPlugin(ctx context.Context, id string) (core.Plugin, error)
+	GetPluginBySlug(ctx context.Context, slug string) (core.Plugin, error)
+	ListPlugins(ctx context.Context, query core.PluginQuery) ([]core.Plugin, error)
+	CreatePluginVersion(ctx context.Context, version core.PluginVersion) error
+	GetPluginVersion(ctx context.Context, pluginID string, version int) (core.PluginVersion, error)
+	ListPluginVersions(ctx context.Context, pluginID string) ([]core.PluginVersion, error)
+
+	// Plugin installs (scope type is core.ScopeProfile or core.ScopeCommunity)
+	UpsertPluginInstall(ctx context.Context, install core.PluginInstall) error
+	DeletePluginInstall(ctx context.Context, id string) error
+	GetPluginInstall(ctx context.Context, id string) (core.PluginInstall, error)
+	FindPluginInstall(ctx context.Context, scopeType, scopeID, pluginID string) (*core.PluginInstall, error)
+	ListPluginInstalls(ctx context.Context, scopeType, scopeID string) ([]core.PluginInstall, error)
+
+	// Plugin storage, namespaced by (plugin, scope) so one plugin cannot read another's
+	// data and one loadout's data cannot leak into another's.
+	PutPluginDatum(ctx context.Context, datum core.PluginDatum) error
+	GetPluginDatum(ctx context.Context, pluginID, scopeType, scopeID, key string) (*core.PluginDatum, error)
+	ListPluginData(ctx context.Context, pluginID, scopeType, scopeID string) ([]core.PluginDatum, error)
+	DeletePluginDatum(ctx context.Context, pluginID, scopeType, scopeID, key string) error
 }

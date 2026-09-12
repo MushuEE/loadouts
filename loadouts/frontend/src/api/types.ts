@@ -258,3 +258,163 @@ export interface LoadoutSummary {
   stats: LoadoutStats;
   item_preview: string[];
 }
+
+// --- Plugins ---
+//
+// A plugin extends the UI with charts, calculators, tables, and maps. There are two
+// execution tiers, and the difference matters to this client: a `widget` arrives fully
+// evaluated by the server (literal values only, no expressions), while an `embed` is
+// author HTML we load into a sandboxed iframe and talk to over postMessage.
+
+export type PluginSurface = 'loadout.panel' | 'loadout.sidebar' | 'item.tab' | 'community.tab';
+export type PluginViewKind = 'widget' | 'embed';
+export type WidgetType = 'stat_grid' | 'bar_chart' | 'pie_chart' | 'table';
+
+export interface PluginCapabilities {
+  read_loadout: boolean;
+  read_items: boolean;
+  read_community: boolean;
+  storage: boolean;
+  network?: string[];
+}
+
+export interface PluginSettingDefinition {
+  key: string;
+  label: string;
+  type: 'text' | 'secret' | 'number' | 'bool' | 'select';
+  required: boolean;
+  default?: string;
+  help?: string;
+  options?: string[];
+}
+
+export interface PluginManifest {
+  api_version: number;
+  views: PluginViewDefinition[];
+  capabilities: PluginCapabilities;
+  schemas?: { namespace: string; definition: unknown }[];
+  settings?: PluginSettingDefinition[];
+}
+
+export interface PluginViewDefinition {
+  id: string;
+  title: string;
+  surface: PluginSurface;
+  kind: PluginViewKind;
+  height?: number;
+}
+
+export interface Plugin {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  owner_type: 'platform' | 'profile' | 'community';
+  owner_id: string;
+  latest_version: number;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginVersion {
+  plugin_id: string;
+  version: number;
+  manifest: PluginManifest;
+  changelog: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface PluginDetail {
+  plugin: Plugin;
+  version: PluginVersion;
+}
+
+export interface PluginInstall {
+  id: string;
+  plugin_id: string;
+  version: number;
+  scope_type: 'profile' | 'community';
+  scope_id: string;
+  granted_caps: string[];
+  settings: Record<string, unknown>;
+  enabled: boolean;
+  installed_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PluginInstallView {
+  install: PluginInstall;
+  plugin: Plugin;
+  manifest: PluginManifest;
+  upgrade_available: boolean;
+  /** Non-empty means upgrading would require approving more access. */
+  missing_caps?: string[];
+}
+
+// --- Evaluated widget render model ---
+
+export interface RenderedStat {
+  label: string;
+  value: unknown;
+  display: string;
+  unit?: string;
+  help?: string;
+}
+
+export interface RenderedColumn {
+  label: string;
+  align: string;
+}
+
+export interface RenderedCell {
+  value: unknown;
+  display: string;
+}
+
+export interface RenderedPoint {
+  label: string;
+  value: number;
+  display: string;
+  share: number;
+}
+
+export interface WidgetRender {
+  type: WidgetType;
+  empty: boolean;
+  empty_text?: string;
+  stats?: RenderedStat[];
+  columns?: RenderedColumn[];
+  rows?: RenderedCell[][];
+  points?: RenderedPoint[];
+  total?: number;
+  truncated?: boolean;
+}
+
+export interface RenderedView {
+  install_id: string;
+  plugin_id: string;
+  version: number;
+  view_id: string;
+  title: string;
+  surface: PluginSurface;
+  kind: PluginViewKind;
+  height?: number;
+  widget?: WidgetRender;
+  embed_url?: string;
+  embed_context?: Record<string, unknown>;
+  /** A view that failed to render. One broken plugin degrades to its own card. */
+  error?: string;
+}
+
+export interface PluginDatum {
+  plugin_id: string;
+  scope_type: string;
+  scope_id: string;
+  key: string;
+  value: Record<string, unknown>;
+  updated_by: string;
+  updated_at: string;
+}

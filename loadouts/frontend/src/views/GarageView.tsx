@@ -6,6 +6,7 @@ import { useAsync } from '../lib/useAsync';
 import { CORE, LAYER_STYLES, categoryIcon, formatCost, formatGrams } from '../lib/display';
 import { Badge, EmptyState, ErrorNote, Spinner } from '../components/ui';
 import { ImportItemModal } from '../components/ImportItemModal';
+import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 
 /** The Garage is the global item catalogue plus your own layer on top of it. */
 export function GarageView() {
@@ -269,6 +270,9 @@ function ItemInspector({
               </button>
               {status && <span className="text-xs text-stone-400">{status}</span>}
             </div>
+
+            {/* Item-scoped plugins render last: they annotate the item rather than define it. */}
+            <PluginSurfaceHost surface="item.tab" itemId={itemId} communityId={communitySlug || undefined} />
           </>
         )}
       </div>

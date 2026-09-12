@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Compass, Database, Home, Loader2, Users } from 'lucide-react';
+import { Compass, Database, Home, Loader2, Puzzle, Users } from 'lucide-react';
 import { useSession } from './session/SessionContext';
 import { HomeView } from './views/HomeView';
 import { DiscoverView } from './views/DiscoverView';
 import { CommunitiesView } from './views/CommunitiesView';
 import { GarageView } from './views/GarageView';
+import { PluginsView } from './views/PluginsView';
 import { LoadoutEditorView } from './views/LoadoutEditorView';
 
-type Tab = 'home' | 'discover' | 'communities' | 'garage';
+type Tab = 'home' | 'discover' | 'communities' | 'garage' | 'plugins';
 
 export default function App() {
   const session = useSession();
@@ -55,6 +56,7 @@ export default function App() {
         <TabButton icon={<Compass size={20} />} label="Discover" active={!loadoutId && tab === 'discover'} onClick={() => { setLoadoutId(null); setTab('discover'); }} />
         <TabButton icon={<Users size={20} />} label="Communities" active={!loadoutId && tab === 'communities'} onClick={() => { setLoadoutId(null); setTab('communities'); }} />
         <TabButton icon={<Database size={20} />} label="Garage" active={!loadoutId && tab === 'garage'} onClick={() => { setLoadoutId(null); setTab('garage'); }} />
+        <TabButton icon={<Puzzle size={20} />} label="Plugins" active={!loadoutId && tab === 'plugins'} onClick={() => { setLoadoutId(null); setTab('plugins'); }} />
 
         <div className="flex-1" />
 
@@ -90,6 +92,7 @@ export default function App() {
             {tab === 'discover' && <DiscoverView onOpenLoadout={openLoadout} />}
             {tab === 'communities' && <CommunitiesView onOpenLoadout={openLoadout} />}
             {tab === 'garage' && <GarageView />}
+            {tab === 'plugins' && <PluginsView />}
           </>
         )}
       </div>

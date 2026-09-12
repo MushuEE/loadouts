@@ -120,6 +120,22 @@ GET    /api/v1/schemas                     POST /api/v1/schemas
 GET    /api/v1/imports/suppliers           # retailers we have URL rules for
 POST   /api/v1/imports/preview             # inspect a product URL, writes nothing
 POST   /api/v1/imports/commit              # create the item from the confirmed draft
+
+GET    /api/v1/plugins                     # the directory (filterable by surface)
+POST   /api/v1/plugins                     # publish a plugin and its v1
+GET    /api/v1/plugins/{id}                # detail, optionally at ?version=N
+GET    /api/v1/plugins/{id}/versions       # version history
+POST   /api/v1/plugins/{id}/versions       # publish a new version (author only)
+PATCH  /api/v1/plugins/{id}/visibility     # list or unlist (author only)
+GET    /api/v1/plugins/render              # evaluated views for one surface
+GET    /api/v1/plugins/installs            # what is installed in a scope
+POST   /api/v1/plugins/installs            # install, granting capabilities explicitly
+PATCH  /api/v1/plugins/installs/{id}       # enable/disable, or replace settings
+DELETE /api/v1/plugins/installs/{id}       # uninstall
+GET    /api/v1/plugins/{id}/data           # the plugin's own namespaced storage
+PUT    /api/v1/plugins/{id}/data/{key}     # written by the frame, via the parent
+DELETE /api/v1/plugins/{id}/data/{key}
+GET    /sandbox/plugins/{id}/versions/{v}/views/{view}/frame   # the embed frame itself
 ```
 
 ---
@@ -166,6 +182,41 @@ stage is generic across all of them.
 
 ---
 
+## Extending the UI with plugins
+
+Every hobby measures itself differently, and we cannot ship a feature for each one. Users
+and communities can add their own views — charts, tables, calculators, maps — and install
+them onto surfaces in the app.
+
+Authors are untrusted, so there are two tiers:
+
+```
+Widget ──▶ JSON spec ──▶ evaluated server-side ──▶ browser receives values only
+Embed  ──▶ author HTML ──▶ sandboxed iframe ──▶ postMessage ──▶ authenticated parent
+```
+
+- **Widgets ship data, not code.** A spec says what to read and what expressions produce
+  each number; the host evaluates it in Go and hands the frontend literal values. A bad
+  expression is a publish-time `400`, never a broken page.
+- **Embeds run the author's own HTML** in an iframe sandboxed with `allow-scripts` but
+  deliberately *without* `allow-same-origin`. The opaque origin has no credentials, so the
+  frame cannot call the API at all — everything privileged is relayed by the parent.
+- **Capabilities are default-deny.** A manifest declares what it needs, an install records
+  what was granted, and rendering intersects the two. A partial grant is refused outright.
+- **Installs pin a version**, so publishing v2 cannot change behaviour someone already
+  approved. A version that asks for more access waits for a fresh grant.
+- **One broken plugin is one broken card**, not a failed request.
+
+Three examples ship with the demo seed: a pack-weight pie chart, a table over a
+community's own `ul_score` metadata layer, and a Google Maps trip route that persists a
+track against the loadout.
+
+> [!NOTE]
+> Full reasoning, including why secrets are redacted for widgets but handed to embeds, is
+> in [PLUGIN_MODEL.md](PLUGIN_MODEL.md).
+
+---
+
 ## Tech stack
 
 - **Frontend**: React 18 (Vite) + Tailwind CSS + lucide-react
@@ -179,6 +230,7 @@ stage is generic across all of them.
 cd loadouts/backend && go test ./...            # unit tests
 cd loadouts/backend && ./scripts/smoke_day0.sh  # end-to-end against a running server
 cd loadouts/backend && ./scripts/smoke_import.sh # end-to-end import flow
+cd loadouts/backend && ./scripts/smoke_plugins.sh # end-to-end plugin model
 cd loadouts/frontend && npm run build            # type-check + bundle
 ```
 
