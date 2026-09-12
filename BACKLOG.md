@@ -10,10 +10,14 @@ committed to a milestone.
 ## Recursive templates — Phase 3 (in flight, not deferred)
 
 Tracked in [#13](https://github.com/MushuEE/loadouts/issues/13): service-layer
-attach/detach/select, the recursive `Detail` tree walk, and the stats rollup, with the
-`Fork` question that still needs a decision. Phases 1–2 (core types, reference graph,
-storage) are merged; [RECURSIVE_TEMPLATES_PLAN.md](RECURSIVE_TEMPLATES_PLAN.md) has the
-full eight-phase breakdown.
+attach/detach/select, the recursive `Detail` tree walk, and the stats rollup. Two
+questions are split out of it —
+[#14](https://github.com/MushuEE/loadouts/issues/14) (what `Fork` does with sub-loadout
+references, a design decision that gates the attach tests) and
+[#15](https://github.com/MushuEE/loadouts/issues/15) (`ReplaceEntries` bypasses graph
+validation). Phases 1–2 (core types, reference graph, storage) are merged;
+[RECURSIVE_TEMPLATES_PLAN.md](RECURSIVE_TEMPLATES_PLAN.md) has the full eight-phase
+breakdown.
 
 Listed here for discoverability only — unlike everything below it, this is next up rather
 than parked.
