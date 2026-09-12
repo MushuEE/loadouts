@@ -12,10 +12,14 @@ import (
 // LoadoutHandler exposes the core shareable entity: create, edit, publish, fork, discover.
 type LoadoutHandler struct {
 	loadouts *service.LoadoutService
+	// favorites owns /loadouts/{loadoutID}/favorite. The loadout router owns this URL
+	// space, so it mounts the sub-router rather than chi trying to mount two routers on
+	// overlapping paths.
+	favorites *FavoriteHandler
 }
 
-func NewLoadoutHandler(loadouts *service.LoadoutService) *LoadoutHandler {
-	return &LoadoutHandler{loadouts: loadouts}
+func NewLoadoutHandler(loadouts *service.LoadoutService, favorites *FavoriteHandler) *LoadoutHandler {
+	return &LoadoutHandler{loadouts: loadouts, favorites: favorites}
 }
 
 func (h *LoadoutHandler) Routes() chi.Router {
@@ -29,6 +33,9 @@ func (h *LoadoutHandler) Routes() chi.Router {
 		r.Put("/entries", h.ReplaceEntries)
 		r.Post("/publish", h.Publish)
 		r.Post("/fork", h.Fork)
+		if h.favorites != nil {
+			r.Mount("/favorite", h.favorites.LoadoutRoutes())
+		}
 	})
 	return r
 }

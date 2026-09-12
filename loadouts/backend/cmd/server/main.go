@@ -43,6 +43,7 @@ func main() {
 	communitySvc := service.NewCommunityService(store)
 	templateSvc := service.NewTemplateService(store, communitySvc)
 	loadoutSvc := service.NewLoadoutService(store, invSvc, templateSvc, communitySvc)
+	favoriteSvc := service.NewFavoriteService(store, loadoutSvc, communitySvc)
 	// A nil fetcher gives the default SSRF-guarded HTTP fetcher; tests inject a fake.
 	importSvc := service.NewImportService(store, invSvc, nil)
 	// Plugin embed frames are served from SANDBOX_BASE and may only be framed by
@@ -76,7 +77,8 @@ func main() {
 	identityHandler := handlers.NewIdentityHandler(identitySvc, loadoutSvc, communitySvc)
 	communityHandler := handlers.NewCommunityHandler(communitySvc, templateSvc, loadoutSvc)
 	templateHandler := handlers.NewTemplateHandler(templateSvc)
-	loadoutHandler := handlers.NewLoadoutHandler(loadoutSvc)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteSvc)
+	loadoutHandler := handlers.NewLoadoutHandler(loadoutSvc, favoriteHandler)
 	importHandler := handlers.NewImportHandler(importSvc)
 	pluginHandler := handlers.NewPluginHandler(pluginSvc)
 	sandboxHandler := handlers.NewSandboxHandler(pluginSvc)
@@ -108,6 +110,7 @@ func main() {
 		r.Mount("/templates", templateHandler.Routes())
 		r.Mount("/loadouts", loadoutHandler.Routes())
 		r.Mount("/discover", loadoutHandler.DiscoverRoutes())
+		r.Mount("/favorites", favoriteHandler.ScopeRoutes())
 		r.Mount("/plugins", pluginHandler.Routes())
 	})
 
