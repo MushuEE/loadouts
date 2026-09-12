@@ -46,7 +46,7 @@ shown as *stale*, and a mod can re-confirm it in one click. Cheap to compute, on
 column, and it turns a silent hijack into a visible diff.
 
 ```
-fingerprint = sha256( name ‖ sorted( slot | item | child | quantity | selected ) )
+fingerprint = fp2:sha256( name ‖ sorted( slot | item | child | quantity | selected ) )
 ```
 
 Sorted by entry ID so the hash is stable; **position is excluded** because reordering cards
@@ -54,14 +54,19 @@ in the UI is cosmetic and should not cry wolf. Description and cover image are e
 the same reason. Name *is* included — "UL Budget Kit" becoming "Sponsored Kit" is exactly
 the hijack we are trying to surface.
 
-The digest is prefixed `fp1:` so the algorithm can change later without anyone having to
-guess how an old value was computed.
+The digest is prefixed with its algorithm so it can change later without anyone having to
+guess how an old value was computed. It shipped as `fp1:` and became `fp2:` when
+sub-loadouts arrived and `child` and `selected` joined the inputs; the bump makes every
+older endorsement read as stale exactly once, which is the honest answer, since those
+digests genuinely could not see a whole category of change.
 
 > [!NOTE]
-> The fingerprint is deliberately **local**: it covers this loadout's own name and entries,
-> not the contents of any sub-loadout it references. Once recursive loadouts land, a trip
-> can change substantively without its own rows changing. Making the fingerprint recursive
-> is a follow-up, and it is listed as a non-goal below rather than half-done here.
+> The fingerprint is deliberately **local**: it covers this loadout's own name and entry
+> rows, and does not follow a sub-loadout reference into the child's contents. Editing
+> "Meals Day 1" changes *that* loadout's fingerprint, so an endorsement of the meal kit
+> goes stale correctly — but an endorsement of a trip referencing it does not. Chasing the
+> whole subtree would make every parent's freshness depend on strangers' edits, which is a
+> much noisier signal and wants its own decision.
 
 ### Two scopes, one table
 
@@ -173,7 +178,7 @@ re-confirming a stale endorsement is the same operation as making it.
 
 | Deferred | Why |
 | --- | --- |
-| Recursive fingerprints that follow sub-loadouts | Needs the recursive resolver from the other branch; doing it half-way would give false confidence |
+| Recursive fingerprints that follow sub-loadouts into their contents | Would make a trip's endorsement go stale whenever a stranger edits a referenced kit. A much noisier signal that wants its own decision, not a silent extension of this one |
 | A denormalized `favorite_count` on `Loadout` | A count query is fine at this size, and a cached counter is a consistency bug waiting to happen |
 | Frozen snapshots / loadout versioning | Bigger than the ownership model it would replace; the fingerprint covers the actual risk |
 | Notifying the owner that a community endorsed them | Wants a notification system, which does not exist yet |

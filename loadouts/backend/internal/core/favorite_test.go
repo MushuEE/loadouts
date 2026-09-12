@@ -95,6 +95,22 @@ func TestFingerprintCatchesSubstantiveChanges(t *testing.T) {
 			entries: []LoadoutEntry{entry("e1", "spare", "tent", 1, 0), entries[1]},
 		},
 		{
+			// A sub-loadout swap: the trip's own rows barely move, but what it carries
+			// is entirely different.
+			name:    "sub-loadout swapped",
+			loadout: base,
+			entries: []LoadoutEntry{
+				{ID: "e1", SlotID: "food", ChildLoadoutID: "ldt_meals_day1", Quantity: 1, Selected: true},
+			},
+		},
+		{
+			name:    "a different alternative is selected",
+			loadout: base,
+			entries: []LoadoutEntry{
+				{ID: "e1", SlotID: "food", ChildLoadoutID: "ldt_meals_day1", Quantity: 1, Selected: false},
+			},
+		},
+		{
 			name:    "renested under a different parent",
 			loadout: base,
 			entries: []LoadoutEntry{{ID: "e1", SlotID: "shelter", ItemID: "tent", Quantity: 1, ParentEntryID: "e2"}, entries[1]},
@@ -111,6 +127,24 @@ func TestFingerprintCatchesSubstantiveChanges(t *testing.T) {
 }
 
 // The name is length-prefixed precisely so it cannot be confused with entry data.
+// Selecting a different alternative in a swipeable slot changes what the loadout
+// actually weighs, so it must not be invisible to an endorsement.
+func TestFingerprintDistinguishesSelectionState(t *testing.T) {
+	l := Loadout{Name: "Trip"}
+	selected := []LoadoutEntry{{ID: "e1", SlotID: "food", ChildLoadoutID: "ldt_day1", Quantity: 1, Selected: true}}
+	deselected := []LoadoutEntry{{ID: "e1", SlotID: "food", ChildLoadoutID: "ldt_day1", Quantity: 1, Selected: false}}
+	if FingerprintLoadout(l, selected) == FingerprintLoadout(l, deselected) {
+		t.Error("selection state must be part of the digest")
+	}
+
+	// And an item entry must never collide with a sub-loadout entry that happens to
+	// share an ID and slot.
+	item := []LoadoutEntry{{ID: "e1", SlotID: "food", ItemID: "ldt_day1", Quantity: 1, Selected: true}}
+	if FingerprintLoadout(l, selected) == FingerprintLoadout(l, item) {
+		t.Error("a sub-loadout reference collided with an item of the same ID")
+	}
+}
+
 func TestFingerprintNameCannotImpersonateAnEntry(t *testing.T) {
 	a := FingerprintLoadout(Loadout{Name: "Kit"}, []LoadoutEntry{entry("e1", "s", "tent", 1, 0)})
 	b := FingerprintLoadout(Loadout{Name: "Kit\ne1|s||tent|1"}, nil)
@@ -121,11 +155,11 @@ func TestFingerprintNameCannotImpersonateAnEntry(t *testing.T) {
 
 func TestFingerprintIsAlgorithmTagged(t *testing.T) {
 	fp := FingerprintLoadout(Loadout{Name: "Kit"}, nil)
-	if !strings.HasPrefix(fp, "fp1:") {
+	if !strings.HasPrefix(fp, "fp2:") {
 		t.Errorf("fingerprint %q should carry its algorithm tag so it can be changed later", fp)
 	}
 	// An empty loadout still fingerprints; "no entries" is a real, comparable state.
-	if len(fp) <= len("fp1:") {
+	if len(fp) <= len("fp2:") {
 		t.Error("an empty loadout should still produce a digest")
 	}
 }
