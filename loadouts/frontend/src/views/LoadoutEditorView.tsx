@@ -7,6 +7,7 @@ import { useAsync } from '../lib/useAsync';
 import { categoryIcon, formatCost, formatGrams, formatKg } from '../lib/display';
 import { Badge, ErrorNote, Spinner } from '../components/ui';
 import { ItemPickerModal } from '../components/ItemPickerModal';
+import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 
 /** Flatten the server's nested entry tree back into the flat list the API expects on write. */
 function flatten(entries: ResolvedEntry[]): LoadoutEntry[] {
@@ -187,6 +188,11 @@ export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; on
           </div>
         )}
 
+        {/* Sidebar plugins sit with the stats, since that is what they annotate. */}
+        <div className="px-4 pb-4">
+          <PluginSurfaceHost surface="loadout.sidebar" loadoutId={loadoutId} />
+        </div>
+
         <div className="mt-auto p-6 border-t border-stone-800 space-y-2">
           {isOwner ? (
             <>
@@ -311,6 +317,14 @@ export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; on
 
             {slots.length === 0 && currentEntries.length === 0 && !isOwner && (
               <div className="text-stone-600 text-sm py-12 text-center">This container is empty.</div>
+            )}
+
+            {/* Plugin panels. Only at the top level: a plugin reasons about the whole
+                loadout, so showing it while zoomed into a container would be a lie. */}
+            {path.length === 0 && (
+              <div className="mt-8">
+                <PluginSurfaceHost surface="loadout.panel" loadoutId={loadoutId} />
+              </div>
             )}
           </div>
         </div>

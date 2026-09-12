@@ -12,6 +12,14 @@ import type {
   LoadoutSummary,
   Profile,
   ProfileItemLayer,
+  Plugin,
+  PluginDatum,
+  PluginDetail,
+  PluginInstallView,
+  PluginManifest,
+  PluginSurface,
+  PluginVersion,
+  RenderedView,
   ResolvedItem,
   SlotDefinition,
   TemplateDetail,
@@ -165,4 +173,63 @@ export const api = {
     request<LoadoutDetail>(`/loadouts/${id}/publish`, { method: 'POST', body: JSON.stringify(body) }),
   forkLoadout: (id: string) => request<LoadoutDetail>(`/loadouts/${id}/fork`, { method: 'POST' }),
   deleteLoadout: (id: string) => request<void>(`/loadouts/${id}`, { method: 'DELETE' }),
+
+  // --- Plugins ---
+  listPlugins: (params: { q?: string; surface?: PluginSurface; owner_id?: string } = {}) =>
+    request<{ plugins: PluginDetail[]; surfaces: PluginSurface[] }>(`/plugins${qs(params)}`),
+  getPlugin: (id: string, version?: number) => request<PluginDetail>(`/plugins/${id}${qs({ version })}`),
+  pluginVersions: (id: string) => request<{ versions: PluginVersion[] }>(`/plugins/${id}/versions`),
+  publishPlugin: (body: {
+    name: string;
+    slug?: string;
+    description?: string;
+    owner_type?: string;
+    owner_id?: string;
+    is_public?: boolean;
+    manifest: PluginManifest;
+    changelog?: string;
+  }) => request<PluginDetail>('/plugins', { method: 'POST', body: JSON.stringify(body) }),
+  publishPluginVersion: (id: string, body: { manifest: PluginManifest; changelog?: string }) =>
+    request<PluginDetail>(`/plugins/${id}/versions`, { method: 'POST', body: JSON.stringify(body) }),
+  setPluginVisibility: (id: string, isPublic: boolean) =>
+    request<Plugin>(`/plugins/${id}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_public: isPublic }),
+    }),
+
+  /** Installs pin a version, so a later publish cannot change what was approved. */
+  installPlugin: (body: {
+    plugin_id: string;
+    version?: number;
+    scope_type: string;
+    scope_id: string;
+    granted_caps: string[];
+    settings?: Record<string, unknown>;
+  }) => request<PluginInstallView>('/plugins/installs', { method: 'POST', body: JSON.stringify(body) }),
+  listInstalls: (params: { scope_type: string; scope_id?: string }) =>
+    request<{ installs: PluginInstallView[] }>(`/plugins/installs${qs(params)}`),
+  updateInstall: (id: string, body: { enabled?: boolean; settings?: Record<string, unknown> }) =>
+    request<PluginInstallView>(`/plugins/installs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  uninstallPlugin: (id: string) => request<void>(`/plugins/installs/${id}`, { method: 'DELETE' }),
+
+  /** Widget views come back fully evaluated; embeds come back as a sandbox URL. */
+  renderSurface: (params: {
+    surface: PluginSurface;
+    loadout_id?: string;
+    item_id?: string;
+    community_id?: string;
+  }) => request<{ views: RenderedView[] }>(`/plugins/render${qs(params)}`),
+
+  listPluginData: (pluginId: string, params: { scope_type: string; scope_id: string }) =>
+    request<{ data: PluginDatum[] }>(`/plugins/${pluginId}/data${qs(params)}`),
+  putPluginDatum: (
+    pluginId: string,
+    key: string,
+    body: { scope_type: string; scope_id: string; value: Record<string, unknown> },
+  ) => request<PluginDatum>(`/plugins/${pluginId}/data/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }),
+  deletePluginDatum: (pluginId: string, key: string, params: { scope_type: string; scope_id: string }) =>
+    request<void>(`/plugins/${pluginId}/data/${encodeURIComponent(key)}${qs(params)}`, { method: 'DELETE' }),
 };
