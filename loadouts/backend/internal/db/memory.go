@@ -646,10 +646,59 @@ func (s *MemoryStore) ReplaceLoadoutEntries(ctx context.Context, loadoutID strin
 func (s *MemoryStore) ListLoadoutEntries(ctx context.Context, loadoutID string) ([]core.LoadoutEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.entriesLocked(loadoutID), nil
+}
+
+// entriesLocked returns a sorted copy. The caller must already hold the lock, which is
+// what lets the batch variant below take it once for the whole level.
+func (s *MemoryStore) entriesLocked(loadoutID string) []core.LoadoutEntry {
 	entries := s.entries[loadoutID]
 	out := make([]core.LoadoutEntry, len(entries))
 	copy(out, entries)
 	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out
+}
+
+func (s *MemoryStore) ListLoadoutEntriesFor(ctx context.Context, loadoutIDs []string) (map[string][]core.LoadoutEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string][]core.LoadoutEntry, len(loadoutIDs))
+	for _, id := range loadoutIDs {
+		out[id] = s.entriesLocked(id)
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) GetLoadoutsByIDs(ctx context.Context, ids []string) (map[string]core.Loadout, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]core.Loadout, len(ids))
+	for _, id := range ids {
+		if l, ok := s.loadouts[id]; ok {
+			out[id] = l
+		}
+	}
+	return out, nil
+}
+
+// LoadoutsReferencing scans every loadout's entries. Postgres answers this from a partial
+// index; in memory a scan is honest and fast enough at the scale this store is for.
+func (s *MemoryStore) LoadoutsReferencing(ctx context.Context, childLoadoutID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := map[string]bool{}
+	out := []string{}
+	for parentID, entries := range s.entries {
+		for _, e := range entries {
+			if e.ChildLoadoutID == childLoadoutID && !seen[parentID] {
+				seen[parentID] = true
+				out = append(out, parentID)
+			}
+		}
+	}
+	// Map iteration order is random; callers walk graphs with this, and a stable order
+	// keeps their behaviour reproducible between runs.
+	sort.Strings(out)
 	return out, nil
 }
 
