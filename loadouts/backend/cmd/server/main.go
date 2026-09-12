@@ -45,6 +45,12 @@ func main() {
 	loadoutSvc := service.NewLoadoutService(store, invSvc, templateSvc, communitySvc)
 	// A nil fetcher gives the default SSRF-guarded HTTP fetcher; tests inject a fake.
 	importSvc := service.NewImportService(store, invSvc, nil)
+	// Plugin embed frames are served from SANDBOX_BASE and may only be framed by
+	// APP_ORIGIN. Both default to the local dev setup.
+	pluginSvc := service.NewPluginService(store, communitySvc, loadoutSvc, invSvc, service.PluginConfig{
+		SandboxBase: envOr("SANDBOX_BASE", "http://localhost:8080/sandbox"),
+		AppOrigin:   envOr("APP_ORIGIN", "http://localhost:5173"),
+	})
 
 	// 3. Seed demo data. Defaults on for the in-memory store (nothing to lose), opt-in
 	//    for Postgres via SEED=1.
@@ -71,6 +77,8 @@ func main() {
 	templateHandler := handlers.NewTemplateHandler(templateSvc)
 	loadoutHandler := handlers.NewLoadoutHandler(loadoutSvc)
 	importHandler := handlers.NewImportHandler(importSvc)
+	pluginHandler := handlers.NewPluginHandler(pluginSvc)
+	sandboxHandler := handlers.NewSandboxHandler(pluginSvc)
 
 	r := chi.NewRouter()
 
@@ -99,12 +107,25 @@ func main() {
 		r.Mount("/templates", templateHandler.Routes())
 		r.Mount("/loadouts", loadoutHandler.Routes())
 		r.Mount("/discover", loadoutHandler.DiscoverRoutes())
+		r.Mount("/plugins", pluginHandler.Routes())
 	})
+
+	// The sandbox lives outside /api/v1 because it serves HTML documents, not JSON, and
+	// is the one route that executes code somebody else wrote.
+	r.Mount("/sandbox", sandboxHandler.Routes())
 
 	log.Println("Starting server on :8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// envOr reads an environment variable with a fallback.
+func envOr(name, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // shouldSeed defaults to true for the in-memory store, and honours SEED=0/1 either way.

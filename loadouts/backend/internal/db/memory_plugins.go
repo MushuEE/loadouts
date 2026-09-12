@@ -25,6 +25,13 @@ func (s *MemoryStore) CreatePlugin(ctx context.Context, p core.Plugin) error {
 			return fmt.Errorf("plugin slug %q is taken", p.Slug)
 		}
 	}
+	// Postgres fills these from column defaults; the memory store has to do it itself
+	// or the two backends disagree about what a fresh row looks like.
+	now := time.Now().UTC()
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = now
+	}
+	p.UpdatedAt = now
 	s.plugins[p.ID] = p
 	return nil
 }
@@ -114,6 +121,9 @@ func (s *MemoryStore) CreatePluginVersion(ctx context.Context, v core.PluginVers
 	// it did when the installer approved it.
 	if _, exists := s.pluginVers[k]; exists {
 		return fmt.Errorf("plugin version %s v%d already exists (versions are immutable)", v.PluginID, v.Version)
+	}
+	if v.CreatedAt.IsZero() {
+		v.CreatedAt = time.Now().UTC()
 	}
 	s.pluginVers[k] = v
 	return nil

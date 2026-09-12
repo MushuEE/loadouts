@@ -38,7 +38,10 @@ func newHarness(t *testing.T) *harness {
 		templates: templates,
 		loadouts:  loadouts,
 		inventory: inventory,
-		plugins:   NewPluginService(store, community, loadouts, inventory, "https://sandbox.test"),
+		plugins: NewPluginService(store, community, loadouts, inventory, PluginConfig{
+			SandboxBase: "https://sandbox.test",
+			AppOrigin:   "https://app.test",
+		}),
 	}
 }
 

@@ -27,19 +27,31 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-// writeError maps sentinel service errors onto HTTP status codes.
-func writeError(w http.ResponseWriter, err error) {
-	status, code := http.StatusInternalServerError, "internal"
+// statusFor maps sentinel service errors onto HTTP status codes. It is separate from
+// writeError so responses that are not JSON (the plugin sandbox serves HTML) can agree
+// with the API about what an error means.
+func statusFor(err error) int {
+	status, _ := classify(err)
+	return status
+}
+
+func classify(err error) (int, string) {
 	switch {
 	case errors.Is(err, core.ErrNotFound):
-		status, code = http.StatusNotFound, "not_found"
+		return http.StatusNotFound, "not_found"
 	case errors.Is(err, core.ErrForbidden):
-		status, code = http.StatusForbidden, "forbidden"
+		return http.StatusForbidden, "forbidden"
 	case errors.Is(err, core.ErrInvalid):
-		status, code = http.StatusBadRequest, "invalid"
+		return http.StatusBadRequest, "invalid"
 	case errors.Is(err, core.ErrConflict):
-		status, code = http.StatusConflict, "conflict"
+		return http.StatusConflict, "conflict"
 	}
+	return http.StatusInternalServerError, "internal"
+}
+
+// writeError maps sentinel service errors onto HTTP status codes.
+func writeError(w http.ResponseWriter, err error) {
+	status, code := classify(err)
 
 	var body errorBody
 	body.Error.Code = code

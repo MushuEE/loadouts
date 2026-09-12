@@ -30,10 +30,27 @@ type PluginService struct {
 	// without allow-same-origin, so they already have an opaque origin; serving them
 	// from a separate host as well is defence in depth.
 	sandboxBase string
+	// appOrigin is who may frame the sandbox, enforced with frame-ancestors.
+	appOrigin string
 }
 
-func NewPluginService(store db.Store, community *CommunityService, loadouts *LoadoutService, items *InventoryService, sandboxBase string) *PluginService {
-	return &PluginService{store: store, community: community, loadouts: loadouts, items: items, sandboxBase: sandboxBase}
+// PluginConfig holds the two origins the sandbox needs to know about.
+type PluginConfig struct {
+	// SandboxBase is where embed frames are served, e.g. "http://localhost:8080/sandbox".
+	SandboxBase string
+	// AppOrigin is the origin allowed to frame them, e.g. "http://localhost:5173".
+	AppOrigin string
+}
+
+func NewPluginService(store db.Store, community *CommunityService, loadouts *LoadoutService, items *InventoryService, cfg PluginConfig) *PluginService {
+	return &PluginService{
+		store:       store,
+		community:   community,
+		loadouts:    loadouts,
+		items:       items,
+		sandboxBase: cfg.SandboxBase,
+		appOrigin:   defaultString(cfg.AppOrigin, "'self'"),
+	}
 }
 
 // maxSettingLength bounds a per-install setting value. Settings hold API keys and
