@@ -112,6 +112,11 @@ PUT    /api/v1/loadouts/{id}/entries
 POST   /api/v1/loadouts/{id}/publish       POST /api/v1/loadouts/{id}/fork
 GET    /api/v1/discover
 
+PUT    /api/v1/loadouts/{id}/favorite      # endorse or bookmark (idempotent)
+DELETE /api/v1/loadouts/{id}/favorite      # withdraw
+GET    /api/v1/loadouts/{id}/favorite      # who vouches for this (communities only)
+GET    /api/v1/favorites?scope_type=&scope_id=   # a community's shelf, or your bookmarks
+
 GET    /api/v1/items                       POST /api/v1/items
 GET    /api/v1/items/{id}?community=&owner=
 GET/PUT /api/v1/items/{id}/layers/profile
@@ -182,6 +187,33 @@ stage is generic across all of them.
 
 ---
 
+## Communities point at good loadouts without owning them
+
+A community can **endorse** a loadout, and a profile can **bookmark** one. Both are the
+same row with a different scope, and neither gives anyone any control over the loadout.
+
+This was the second answer to "how does a community offer a canonical meal kit?". The
+first was to let communities *own* loadouts, which was built and then removed: shared
+ownership means a moderator's edit silently changes the weight of trips that were planned
+months ago. A member who wants a community's kit forks it and gets a stable copy of their
+own — which is what you actually want from a packing list.
+
+Endorsement takes an admin of the community, and the loadout must not be private. It
+never needs the loadout owner's permission: endorsing is speech about a public object,
+and the owner keeps the only lever that matters, which is control of the object.
+
+**Endorsements can go stale.** Each one records a fingerprint of the loadout's name and
+contents when it was confirmed, so if the owner later swaps the gear or renames it, the
+endorsement is flagged *"edited since endorsed"* with a one-click re-confirm rather than
+quietly vouching for something else. Cosmetic edits — description, cover image, dragging
+cards around the grid — deliberately do not trip it.
+
+Endorsements also outlive their target. Delete a loadout and the endorsement stays,
+marked unavailable, because a community that endorsed six kits and now sees five should
+be told why.
+
+---
+
 ## Extending the UI with plugins
 
 Every hobby measures itself differently, and we cannot ship a feature for each one. Users
@@ -231,6 +263,7 @@ cd loadouts/backend && go test ./...            # unit tests
 cd loadouts/backend && ./scripts/smoke_day0.sh  # end-to-end against a running server
 cd loadouts/backend && ./scripts/smoke_import.sh # end-to-end import flow
 cd loadouts/backend && ./scripts/smoke_plugins.sh # end-to-end plugin model
+cd loadouts/backend && ./scripts/smoke_favorites.sh # endorsement, staleness, withdrawal
 cd loadouts/frontend && npm run build            # type-check + bundle
 ```
 

@@ -24,6 +24,8 @@ type Services struct {
 	Inventory *service.InventoryService
 	// Plugins is optional: leave it nil to seed everything except the demo plugins.
 	Plugins *service.PluginService
+	// Favorites is optional, for the same reason.
+	Favorites *service.FavoriteService
 }
 
 // item is a compact description of a seed item; it expands into the core metadata namespace.
@@ -316,6 +318,17 @@ func seedLoadouts(ctx context.Context, s Services, gearhead, fitcheck, sponsor c
 	}
 	if _, err := s.Loadouts.Publish(ctx, fitcheck.ID, fit.Loadout.ID, core.VisibilityPublic, nyc.ID); err != nil {
 		return err
+	}
+
+	// --- Endorsement: the community points at a member's kit without owning it. ---
+	//
+	// gearhead admins the UL community and does not own the sponsored loadout, so this
+	// is the real shape of the feature rather than someone endorsing themselves.
+	if s.Favorites != nil {
+		if _, err := s.Favorites.Favorite(ctx, gearhead.ID, core.FavoriteCommunity, ul.ID,
+			sponsored.Loadout.ID, "Honest about what's comped. Good baseline for a first kit."); err != nil {
+			return fmt.Errorf("seed endorsement: %w", err)
+		}
 	}
 
 	// --- Plugins, last: they render over everything above. ---
