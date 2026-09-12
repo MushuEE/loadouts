@@ -29,6 +29,10 @@ type MemoryStore struct {
 	tmplVersions map[string]core.TemplateVersion // "templateID:version"
 	loadouts     map[string]core.Loadout
 	entries      map[string][]core.LoadoutEntry // loadoutID -> entries
+	plugins      map[string]core.Plugin
+	pluginVers   map[string]core.PluginVersion // "pluginID:version"
+	installs     map[string]core.PluginInstall
+	pluginData   map[string]core.PluginDatum // "pluginID:scopeType:scopeID:key"
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -50,6 +54,10 @@ func NewMemoryStore() *MemoryStore {
 		tmplVersions: make(map[string]core.TemplateVersion),
 		loadouts:     make(map[string]core.Loadout),
 		entries:      make(map[string][]core.LoadoutEntry),
+		plugins:      make(map[string]core.Plugin),
+		pluginVers:   make(map[string]core.PluginVersion),
+		installs:     make(map[string]core.PluginInstall),
+		pluginData:   make(map[string]core.PluginDatum),
 	}
 }
 

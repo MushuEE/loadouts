@@ -130,6 +130,24 @@ const (
 	ScopeProfile   = "profile"
 )
 
+// SupportsSource reports whether a widget on this surface may read a given data source.
+//
+// A loadout panel cannot ask for the community catalog and an item tab cannot ask for
+// loadout entries, because the host simply has nothing to put in those rows. Checking it
+// here means the mismatch is a publish-time error instead of an empty widget nobody can
+// explain.
+func (s Surface) SupportsSource(source WidgetSource) bool {
+	switch s.ScopeType() {
+	case ScopeLoadout:
+		return source == SourceLoadoutEntries || source == SourceLoadoutStats
+	case ScopeItem:
+		return source == SourceItem
+	case ScopeCommunity:
+		return source == SourceCommunityItems
+	}
+	return false
+}
+
 // ViewKind selects the execution tier.
 type ViewKind string
 
@@ -364,6 +382,10 @@ func ValidateManifest(m PluginManifest) error {
 			if err := ValidateWidgetSpec(*v.Widget); err != nil {
 				return fmt.Errorf("%w: view %q: %s", ErrInvalid, v.ID, err)
 			}
+			if !v.Surface.SupportsSource(v.Widget.Source) {
+				return fmt.Errorf("%w: view %q reads %q, which the %q surface cannot provide",
+					ErrInvalid, v.ID, v.Widget.Source, v.Surface)
+			}
 		case ViewEmbed:
 			if strings.TrimSpace(v.HTML) == "" {
 				return fmt.Errorf("%w: embed view %q has no html", ErrInvalid, v.ID)
@@ -380,6 +402,11 @@ func ValidateManifest(m PluginManifest) error {
 		}
 		if s.Namespace == CoreNamespace {
 			return fmt.Errorf("%w: the %q namespace is reserved by the platform", ErrInvalid, CoreNamespace)
+		}
+		// A plugin that declares an unusable schema would fail every metadata write it
+		// gates, so the schema document itself is compiled here.
+		if err := ValidateSchemaDocument(s.Definition); err != nil {
+			return fmt.Errorf("%w: schema %q: %s", ErrInvalid, s.Namespace, err)
 		}
 	}
 
