@@ -102,17 +102,29 @@ Widget types: `stat_grid`, `bar_chart`, `pie_chart`, `table`.
 
 ## 5. Work breakdown
 
-| Phase | Scope |
-| --- | --- |
-| 1 | Domain types: plugin, manifest, views, capabilities, installs, data |
-| 2 | Expression evaluator + widget evaluation, with heavy unit tests |
-| 3 | Store methods (interface, memory, Postgres) + migration `0006` |
-| 4 | Services: publish/version, install/grant, render views, plugin storage |
-| 5 | HTTP API + authz |
-| 6 | Sandbox host route (serves embed HTML with CSP) + plugin bridge SDK |
-| 7 | Frontend: surface host, SVG chart components, iframe bridge, plugin manager |
-| 8 | Example plugins: weight breakdown (widget), UL score table (widget + schema), trip route map (embed) |
-| 9 | Docs, smoke script |
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1 | Domain types: plugin, manifest, views, capabilities, installs, data | ✅ |
+| 2 | Expression evaluator + widget evaluation, with heavy unit tests | ✅ |
+| 3 | Store methods (interface, memory, Postgres) + migration `0006` | ✅ |
+| 4 | Services: publish/version, install/grant, render views, plugin storage | ✅ |
+| 5 | HTTP API + authz | ✅ |
+| 6 | Sandbox host route (serves embed HTML with CSP) + plugin bridge SDK | ✅ |
+| 7 | Frontend: surface host, SVG chart components, iframe bridge, plugin manager | ✅ |
+| 8 | Example plugins: weight breakdown (widget), UL score table (widget + schema), trip route map (embed) | ✅ |
+| 9 | Docs, smoke script | ✅ |
+
+Writing the example plugins in phase 8 — using only the public API, as an author would —
+turned up two bugs that the unit tests had not:
+
+- `ListInstalls` passed its query parameters straight to the store, so omitting the scope
+  returned every install on the platform to an anonymous caller.
+- Nested aggregates (`sum(sum(x))`) were rejected by the evaluator but not the parser, so
+  such a plugin published cleanly and then failed on every render — breaking the rule that
+  a bad expression is a publish-time error.
+
+Both are fixed with regression tests. Building the examples last, against the real API, is
+what found them.
 
 ## 6. Day 0 non-goals
 
