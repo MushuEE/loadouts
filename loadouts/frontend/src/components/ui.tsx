@@ -29,9 +29,21 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-export function Badge({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+export function Badge({
+  children,
+  className = '',
+  title,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  /** Optional tooltip, used for badges whose meaning isn't self-evident. */
+  title?: string;
+}) {
   return (
-    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${className}`}>
+    <span
+      title={title}
+      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${className}`}
+    >
       {children}
     </span>
   );

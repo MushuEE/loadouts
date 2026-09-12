@@ -65,7 +65,12 @@ export interface ResolvedItem {
   provenance: Record<string, LayerName>;
   applied_layers: LayerName[];
   sources?: { supplier_name: string; price: number; url: string }[];
+  origin?: ItemOrigin;
+  verified: boolean;
 }
+
+/** How an item entered the catalog. Imports are usable but flagged until vouched for. */
+export type ItemOrigin = 'curated' | 'import';
 
 export interface Item {
   id: string;
@@ -74,6 +79,77 @@ export interface Item {
   image_url: string;
   provided_slots: SlotDefinition[];
   base_metadata: Record<string, Record<string, unknown>>;
+  origin?: ItemOrigin;
+  verified?: boolean;
+  imported_by?: string;
+}
+
+// --- Item importing ---
+
+/** Where the URL pointed, derived without any network call. */
+export interface ImportTarget {
+  supplier_id: string;
+  product_id: string;
+  canonical_url: string;
+  host: string;
+}
+
+/**
+ * The scraped draft. `has_weight` / `has_price` distinguish "we couldn't find it" from
+ * "it is genuinely zero", which matters because 0g would silently corrupt loadout stats.
+ */
+export interface ImportDraft {
+  target: ImportTarget;
+  name: string;
+  brand: string;
+  description: string;
+  image_url: string;
+  category: string;
+  weight_g: number;
+  has_weight: boolean;
+  cost_cents: number;
+  has_price: boolean;
+  currency: string;
+  consumable: boolean;
+  extras?: Record<string, unknown>;
+  extracted_via?: string;
+}
+
+export type ImportStatus = 'parsed' | 'manual' | 'existing';
+
+export interface ImportPreview {
+  status: ImportStatus;
+  draft: ImportDraft;
+  supplier_name: string;
+  affiliate_url: string;
+  suggested_id: string;
+  existing_item?: Item;
+  warning?: string;
+}
+
+export interface ImportCommitRequest {
+  url: string;
+  name: string;
+  category: string;
+  brand?: string;
+  description?: string;
+  image_url?: string;
+  weight_g: number;
+  cost_cents: number;
+  currency?: string;
+  consumable?: boolean;
+}
+
+export interface ImportResult {
+  item: Item;
+  /** False when the URL turned out to already be in the catalog. */
+  created: boolean;
+}
+
+export interface ImportSupplier {
+  id: string;
+  name: string;
+  base_url: string;
 }
 
 export interface ProfileItemLayer {

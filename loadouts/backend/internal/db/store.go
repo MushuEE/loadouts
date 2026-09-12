@@ -20,7 +20,10 @@ type Store interface {
 
 	// Item Sources & Suppliers
 	GetItemSources(ctx context.Context, itemID string) ([]core.ItemSource, error)
+	UpsertItemSource(ctx context.Context, source core.ItemSource) error
 	GetSupplier(ctx context.Context, id string) (core.Supplier, error)
+	UpsertSupplier(ctx context.Context, supplier core.Supplier) error
+	ListSuppliers(ctx context.Context) ([]core.Supplier, error)
 	GetItemBySource(ctx context.Context, supplierID, productID string) (string, error) // Returns itemID
 
 	// User Metadata (legacy compat shape; backed by profile item layers)

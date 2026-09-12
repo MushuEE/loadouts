@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gmccloskey/loadouts/backend/internal/core"
 )
@@ -176,6 +177,51 @@ func (s *MemoryStore) GetItemBySource(ctx context.Context, supplierID, productID
 		}
 	}
 	return "", fmt.Errorf("not found")
+}
+
+// UpsertItemSource mirrors the Postgres UNIQUE(supplier_id, product_id) constraint:
+// re-importing the same product URL refreshes the price instead of stacking duplicates.
+func (s *MemoryStore) UpsertItemSource(ctx context.Context, source core.ItemSource) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if source.LastUpdated.IsZero() {
+		source.LastUpdated = time.Now().UTC()
+	}
+	existing := s.itemSources[source.ItemID]
+	for i, src := range existing {
+		if src.SupplierID == source.SupplierID && src.ProductID == source.ProductID {
+			if source.ID == "" {
+				source.ID = src.ID
+			}
+			existing[i] = source
+			s.itemSources[source.ItemID] = existing
+			return nil
+		}
+	}
+	if source.ID == "" {
+		source.ID = core.NewID("src")
+	}
+	s.itemSources[source.ItemID] = append(existing, source)
+	return nil
+}
+
+func (s *MemoryStore) UpsertSupplier(ctx context.Context, supplier core.Supplier) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suppliers[supplier.ID] = supplier
+	return nil
+}
+
+func (s *MemoryStore) ListSuppliers(ctx context.Context) ([]core.Supplier, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	list := make([]core.Supplier, 0, len(s.suppliers))
+	for _, v := range s.suppliers {
+		list = append(list, v)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	return list, nil
 }
 
 func (s *MemoryStore) AddItemSource(itemID string, src core.ItemSource) {

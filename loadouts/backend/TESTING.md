@@ -86,3 +86,56 @@ curl -s -X POST -H "X-Profile-ID: trailsponsor" $API/loadouts/<loadout-id>/fork
   and their weight/cost still counts toward the loadout totals.
 - **Schema validation**: a public user layer whose namespace matches a registered schema must
   conform to it; unregistered namespaces are allowed through.
+
+---
+
+## 5. Item Importing
+
+```bash
+./scripts/smoke_import.sh    # 10-section end-to-end run
+```
+
+The script does not depend on any real store being reachable — that is the point of the
+design. Retailers *will* block us, and every interesting behavior still has to work.
+
+### Manual flows
+
+```bash
+API=http://localhost:8080/api/v1
+GH=$(curl -s "$API/profiles" | python3 -c "import sys,json;print([p['id'] for p in json.load(sys.stdin) if p['handle']=='gearhead'][0])")
+
+# Preview: writes nothing, safe to call repeatedly
+curl -s -X POST "$API/imports/preview" -H 'Content-Type: application/json' \
+  -d '{"url":"https://www.rei.com/product/894303/big-agnes-copper-spur-hv-ul2"}' | python3 -m json.tool
+
+# Commit the confirmed draft
+curl -s -X POST "$API/imports/commit" -H 'Content-Type: application/json' -H "X-Profile-ID: $GH" \
+  -d '{"url":"https://www.rei.com/product/894303/x","name":"Copper Spur UL2","category":"shelter","weight_g":1360,"cost_cents":54995}' \
+  | python3 -m json.tool
+```
+
+### Key behaviors to verify
+
+- **Canonicalization is network-free**: `rei.com/product/894303/any-slug?utm_source=x`,
+  `www.rei.com/product/894303/other-slug`, and the bare `rei.com/product/894303` must all
+  resolve to `(rei, 894303)` and therefore to the *same* catalog item.
+- **Graceful degradation**: a retailer returning 403/503 must produce `status: "manual"`
+  with a correct `product_id` and `affiliate_url` — never a 5xx from our API.
+- **SSRF is a hard failure**: `http://169.254.169.254/…`, `http://localhost:…`,
+  `http://10.0.0.1/…`, and `http://x.internal/…` must all return `403`, on **both**
+  `/imports/preview` and `/imports/commit` (commit never fetches, so it is guarded
+  separately in `Canonicalize`).
+- **Idempotency**: committing the same product twice returns `201` then `200`, with
+  `created: false` and the same item ID the second time. The catalog must not grow.
+- **Unknown weight ≠ zero weight**: when the page has no weight, `has_weight` must be
+  `false` and the UI field must be blank, not `0`.
+- **Provenance**: imported items carry `origin: "import"`, `verified: false`,
+  `imported_by: <profileID>`, and an `import` metadata namespace with the supplier,
+  product ID, and source URL.
+- **Auth**: `/imports/commit` requires `X-Profile-ID` and returns `403` without it.
+  `/imports/preview` is anonymous-safe.
+- **Non-product URLs**: a known retailer's search or category page returns `400` with a
+  message naming the retailer, not a generic parse failure.
+- **Stats integration**: an imported item added to a loadout must move
+  `total_weight_g` / `total_cost_cents`. This is the real test of whether the import was
+  worth anything.

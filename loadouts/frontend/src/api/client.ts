@@ -2,6 +2,10 @@ import type {
   Community,
   CommunityMember,
   CommunityView,
+  ImportCommitRequest,
+  ImportPreview,
+  ImportResult,
+  ImportSupplier,
   Item,
   LoadoutDetail,
   LoadoutEntry,
@@ -116,6 +120,15 @@ export const api = {
       private_metadata?: Record<string, unknown>;
     },
   ) => request<ProfileItemLayer>(`/items/${itemId}/layers/profile`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  // --- Item importing ---
+  importSuppliers: () =>
+    request<{ suppliers: ImportSupplier[]; note: string }>('/imports/suppliers'),
+  /** Read-only: inspects the URL and returns an editable draft without writing anything. */
+  previewImport: (url: string) =>
+    request<ImportPreview>('/imports/preview', { method: 'POST', body: JSON.stringify({ url }) }),
+  commitImport: (body: ImportCommitRequest) =>
+    request<ImportResult>('/imports/commit', { method: 'POST', body: JSON.stringify(body) }),
 
   // --- Templates ---
   listTemplates: (params: { q?: string; community_id?: string } = {}) =>

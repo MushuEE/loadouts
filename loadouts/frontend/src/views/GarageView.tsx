@@ -1,15 +1,11 @@
 import { useState } from 'react';
-import { Link as LinkIcon, RefreshCw, Search, X } from 'lucide-react';
+import { PackagePlus, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Community, Item, ProfileItemLayer, ResolvedItem } from '../api/types';
 import { useAsync } from '../lib/useAsync';
 import { CORE, LAYER_STYLES, categoryIcon, formatCost, formatGrams } from '../lib/display';
 import { Badge, EmptyState, ErrorNote, Spinner } from '../components/ui';
-
-const CATEGORIES = [
-  'pack', 'shelter', 'sleep', 'kitchen', 'fuel', 'consumable', 'shirt', 'pants',
-  'shoes', 'outerwear', 'poles', 'electronics', 'organizer', 'universal',
-];
+import { ImportItemModal } from '../components/ImportItemModal';
 
 /** The Garage is the global item catalogue plus your own layer on top of it. */
 export function GarageView() {
@@ -17,6 +13,7 @@ export function GarageView() {
   const [submitted, setSubmitted] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [communitySlug, setCommunitySlug] = useState('');
+  const [importing, setImporting] = useState(false);
 
   const items = useAsync<Item[]>(() => api.listItems(submitted), [submitted]);
   const communities = useAsync<Community[]>(() => api.listCommunities(), []);
@@ -31,7 +28,13 @@ export function GarageView() {
               Global items are shared and immutable. Your edits live in your own layer.
             </p>
           </div>
-          <ImportItem onCreated={() => items.reload()} />
+          <button
+            onClick={() => setImporting(true)}
+            className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg flex items-center gap-2 shrink-0"
+          >
+            <PackagePlus className="w-4 h-4" />
+            Import from a store
+          </button>
         </div>
 
         <div className="flex gap-3 mb-4">
@@ -84,6 +87,14 @@ export function GarageView() {
                   <td className="p-4 font-medium text-stone-200 flex items-center gap-3">
                     <span className="text-stone-500">{categoryIcon(item.category, 'w-4 h-4')}</span>
                     {item.name}
+                    {item.origin === 'import' && !item.verified && (
+                      <Badge
+                        className="bg-amber-950/60 text-amber-500 border border-amber-900/50"
+                        title="Imported from a store and not yet vouched for"
+                      >
+                        unverified
+                      </Badge>
+                    )}
                   </td>
                   <td className="p-4">
                     <Badge className="bg-stone-800 text-stone-400">{item.category}</Badge>
@@ -104,119 +115,17 @@ export function GarageView() {
       {selected && (
         <ItemInspector itemId={selected} communitySlug={communitySlug} onClose={() => setSelected(null)} />
       )}
-    </div>
-  );
-}
 
-/** "Smart Import" prototype: unfurl a product URL into a draft global item. */
-function ImportItem({ onCreated }: { onCreated: () => void }) {
-  const [url, setUrl] = useState('');
-  const [draft, setDraft] = useState<{ id: string; name: string; category: string; weight: number; cost: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function unfurl() {
-    setError(null);
-    try {
-      const parsed = new URL(url);
-      const slug = parsed.pathname.split('/').filter(Boolean).pop() ?? 'new-item';
-      setDraft({
-        id: `${slug.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`,
-        name: slug.replace(/[-_]/g, ' ').replace(/\.html?$/i, '').replace(/\b\w/g, (c) => c.toUpperCase()),
-        category: 'universal',
-        weight: 0,
-        cost: 0,
-      });
-      setUrl('');
-    } catch {
-      setError('That does not look like a URL.');
-    }
-  }
-
-  async function save() {
-    if (!draft) return;
-    try {
-      await api.createItem({
-        id: draft.id,
-        name: draft.name,
-        category: draft.category,
-        provided_slots: [],
-        base_metadata: {
-          [CORE]: { weight_g: draft.weight, cost_cents: draft.cost, consumable: false },
-        },
-      });
-      setDraft(null);
-      onCreated();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  return (
-    <div className="w-96">
-      <div className="flex bg-stone-900 rounded-lg border border-stone-800 p-1 focus-within:border-orange-500">
-        <div className="pl-3 flex items-center text-stone-500">
-          <LinkIcon className="w-4 h-4" />
-        </div>
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && unfurl()}
-          placeholder="Paste a product link…"
-          className="bg-transparent px-3 text-sm flex-1 text-white outline-none placeholder:text-stone-600"
+      {importing && (
+        <ImportItemModal
+          onClose={() => setImporting(false)}
+          onImported={(item) => {
+            items.reload();
+            // Drop straight into the inspector so the user can add their own layer
+            // (personal weight measurement, notes) while the item is fresh in mind.
+            setSelected(item.id);
+          }}
         />
-        <button onClick={unfurl} className="px-4 py-1.5 rounded-md bg-stone-800 hover:bg-stone-700 text-sm">
-          Import
-        </button>
-      </div>
-
-      {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
-
-      {draft && (
-        <div className="mt-3 p-4 rounded-xl bg-stone-900 border border-emerald-500/30 space-y-3">
-          <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
-            <RefreshCw className="w-4 h-4" /> Review imported gear
-          </div>
-          <input
-            value={draft.name}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            className="w-full bg-black/40 border border-stone-700 rounded-lg p-2 text-sm text-white outline-none"
-          />
-          <div className="grid grid-cols-3 gap-2">
-            <select
-              value={draft.category}
-              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
-              className="bg-black/40 border border-stone-700 rounded-lg p-2 text-xs text-white outline-none"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              value={draft.weight}
-              onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })}
-              placeholder="grams"
-              className="bg-black/40 border border-stone-700 rounded-lg p-2 text-xs text-white outline-none"
-            />
-            <input
-              type="number"
-              value={draft.cost}
-              onChange={(e) => setDraft({ ...draft, cost: Number(e.target.value) })}
-              placeholder="cents"
-              className="bg-black/40 border border-stone-700 rounded-lg p-2 text-xs text-white outline-none"
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setDraft(null)} className="px-3 py-1.5 text-xs text-stone-400 hover:text-white">
-              Discard
-            </button>
-            <button onClick={save} className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">
-              Add to Garage
-            </button>
-          </div>
-        </div>
       )}
     </div>
   );
