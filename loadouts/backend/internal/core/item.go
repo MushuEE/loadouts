@@ -20,16 +20,28 @@ type SchemaDefinition struct {
 }
 
 // Item represents the global base item in the metadata store.
+// Global items are individual products (physical or virtual); they are public and
+// treated as immutable once published. Everything hobby-specific lives in the
+// community and profile layers on top (see layers.go).
 type Item struct {
-	ID           string    `json:"id" db:"id"`
-	Name         string    `json:"name" db:"name"`
-	ImageURL     string    `json:"image_url" db:"image_url"`
-	BaseMetadata Metadata  `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID   string `json:"id" db:"id"`
+	Name string `json:"name" db:"name"`
+	// Category drives template slot compatibility (e.g. "pack", "shelter", "sleep").
+	Category string `json:"category" db:"category"`
+	ImageURL string `json:"image_url" db:"image_url"`
+	// ProvidedSlots lets an item act as a container (a pack provides pockets, a pot
+	// provides an interior), which is what powers the telescoping loadout view.
+	ProvidedSlots SlotList  `json:"provided_slots" db:"provided_slots"`
+	BaseMetadata  Metadata  `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // UserMetadata represents user-specific overrides or extensions of an item.
+//
+// Deprecated: retained as the wire/compat shape for the original /items/{id}/metadata
+// endpoint. Overrides maps to ProfileItemLayer.PublicMetadata and OpenData maps to
+// ProfileItemLayer.PrivateMetadata.
 type UserMetadata struct {
 	UserID         string    `json:"user_id" db:"user_id"`
 	ItemID         string    `json:"item_id" db:"item_id"`
