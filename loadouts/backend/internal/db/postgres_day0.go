@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/gmccloskey/loadouts/backend/internal/core"
 )
 
@@ -343,6 +345,13 @@ func (s *PostgresStore) ListLoadouts(ctx context.Context, q core.DiscoverQuery) 
 	return loadouts, rows.Err()
 }
 
+// entryColumns spells out the projection because item_id is nullable now: a sub-loadout
+// entry has no item. COALESCE keeps core.LoadoutEntry free of sql.NullString, which would
+// otherwise leak the database's representation into the domain type and every caller.
+const entryColumns = `id, loadout_id, slot_id, parent_entry_id,
+	COALESCE(item_id, '') AS item_id, child_loadout_id, selected,
+	quantity, note, position, created_at`
+
 // ReplaceLoadoutEntries swaps the entry set atomically; the client always sends the whole tree.
 func (s *PostgresStore) ReplaceLoadoutEntries(ctx context.Context, loadoutID string, entries []core.LoadoutEntry) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -355,8 +364,12 @@ func (s *PostgresStore) ReplaceLoadoutEntries(ctx context.Context, loadoutID str
 		return err
 	}
 
-	query := `INSERT INTO loadout_entries (id, loadout_id, slot_id, parent_entry_id, item_id, quantity, note, position)
-	          VALUES (:id, :loadout_id, :slot_id, :parent_entry_id, :item_id, :quantity, :note, :position)`
+	// NULLIF turns the domain's empty-string convention back into the NULL the check
+	// constraint expects for a sub-loadout entry.
+	query := `INSERT INTO loadout_entries
+	            (id, loadout_id, slot_id, parent_entry_id, item_id, child_loadout_id, selected, quantity, note, position)
+	          VALUES
+	            (:id, :loadout_id, :slot_id, :parent_entry_id, NULLIF(:item_id, ''), :child_loadout_id, :selected, :quantity, :note, :position)`
 	for _, e := range entries {
 		e.LoadoutID = loadoutID
 		if _, err := tx.NamedExecContext(ctx, query, e); err != nil {
@@ -369,6 +382,62 @@ func (s *PostgresStore) ReplaceLoadoutEntries(ctx context.Context, loadoutID str
 func (s *PostgresStore) ListLoadoutEntries(ctx context.Context, loadoutID string) ([]core.LoadoutEntry, error) {
 	entries := []core.LoadoutEntry{}
 	err := s.db.SelectContext(ctx, &entries,
-		`SELECT * FROM loadout_entries WHERE loadout_id = $1 ORDER BY position`, loadoutID)
+		`SELECT `+entryColumns+` FROM loadout_entries WHERE loadout_id = $1 ORDER BY position`, loadoutID)
 	return entries, err
+}
+
+// ListLoadoutEntriesFor fetches entries for many loadouts in one round trip.
+//
+// Resolving a nested loadout one parent at a time is an N+1 storm that gets worse with
+// both depth and fan-out. The service walks the tree a level at a time and calls this
+// once per level, so a five-deep trip costs five queries however wide it is.
+func (s *PostgresStore) ListLoadoutEntriesFor(ctx context.Context, loadoutIDs []string) (map[string][]core.LoadoutEntry, error) {
+	out := map[string][]core.LoadoutEntry{}
+	if len(loadoutIDs) == 0 {
+		return out, nil
+	}
+	query, args, err := sqlx.In(
+		`SELECT `+entryColumns+` FROM loadout_entries WHERE loadout_id IN (?) ORDER BY position`, loadoutIDs)
+	if err != nil {
+		return nil, err
+	}
+	entries := []core.LoadoutEntry{}
+	if err := s.db.SelectContext(ctx, &entries, s.db.Rebind(query), args...); err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		out[e.LoadoutID] = append(out[e.LoadoutID], e)
+	}
+	return out, nil
+}
+
+// GetLoadoutsByIDs fetches many loadouts at once, for the same batching reason.
+func (s *PostgresStore) GetLoadoutsByIDs(ctx context.Context, ids []string) (map[string]core.Loadout, error) {
+	out := map[string]core.Loadout{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	query, args, err := sqlx.In(`SELECT * FROM loadouts WHERE id IN (?)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	loadouts := []core.Loadout{}
+	if err := s.db.SelectContext(ctx, &loadouts, s.db.Rebind(query), args...); err != nil {
+		return nil, err
+	}
+	for _, l := range loadouts {
+		out[l.ID] = l
+	}
+	return out, nil
+}
+
+// LoadoutsReferencing returns the loadouts whose entries point at this one.
+//
+// This is the reverse edge the depth check needs: attaching a subtree has to know how far
+// the parent already sits from the top of the graph, which means walking upwards.
+func (s *PostgresStore) LoadoutsReferencing(ctx context.Context, childLoadoutID string) ([]string, error) {
+	ids := []string{}
+	err := s.db.SelectContext(ctx, &ids,
+		`SELECT DISTINCT loadout_id FROM loadout_entries WHERE child_loadout_id = $1`, childLoadoutID)
+	return ids, err
 }

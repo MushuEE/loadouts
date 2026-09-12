@@ -45,7 +45,11 @@ type Favorite struct {
 
 // fingerprintAlgorithm prefixes every digest so the hashed inputs can change later
 // without anyone having to guess how an old value was produced.
-const fingerprintAlgorithm = "fp1"
+//
+// fp2 added ChildLoadoutID and Selected, once sub-loadouts existed to reference. Bumping
+// the tag means every fp1 endorsement reads as stale exactly once, which is the correct
+// answer: those digests genuinely could not see a whole category of change.
+const fingerprintAlgorithm = "fp2"
 
 // FingerprintLoadout digests the *substance* of a loadout: its name and the set of things
 // in it. Two loadouts with the same fingerprint carry the same gear under the same name.
@@ -57,12 +61,17 @@ const fingerprintAlgorithm = "fp1"
 //   - Description and cover image are out, for the same reason.
 //   - Name is in. "UL Budget Kit" quietly becoming "Sponsored Kit" is precisely the
 //     substitution this exists to catch.
+//   - ChildLoadoutID and Selected are in. Swapping which meal kit hangs off the food
+//     slot, or which alternative is the live one, changes what was endorsed as surely as
+//     swapping an item does.
 //
-// The digest is local by design, and currently covers only item entries. Sub-loadout
-// references (ChildLoadoutID) do not exist on this branch yet; when recursive loadouts
-// land, this becomes "fp2" and includes the child reference and its selection state. A
-// trip will otherwise be able to change substantively without any of its own rows
-// changing, which is exactly the blind spot this is meant to close.
+// The digest remains **local**: it covers this loadout's own rows, and does not follow
+// ChildLoadoutID into the referenced loadout's contents. Whoever edits "Meals Day 1"
+// changes that loadout's own fingerprint, so an endorsement *of the meal kit* goes stale
+// correctly — but an endorsement of a trip that references it does not. Chasing the whole
+// subtree would make every parent's freshness depend on strangers' edits, which is a
+// different and much noisier signal; it wants its own decision rather than being smuggled
+// in here.
 func FingerprintLoadout(l Loadout, entries []LoadoutEntry) string {
 	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -73,7 +82,9 @@ func FingerprintLoadout(l Loadout, entries []LoadoutEntry) string {
 			e.SlotID,
 			e.ParentEntryID,
 			e.ItemID,
+			e.ChildLoadoutID,
 			strconv.Itoa(e.Quantity),
+			strconv.FormatBool(e.Selected),
 		}, "|"))
 	}
 	sort.Strings(lines)

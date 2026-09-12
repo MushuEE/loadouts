@@ -73,6 +73,13 @@ type Store interface {
 	ListLoadouts(ctx context.Context, query core.DiscoverQuery) ([]core.Loadout, error)
 	ReplaceLoadoutEntries(ctx context.Context, loadoutID string, entries []core.LoadoutEntry) error
 	ListLoadoutEntries(ctx context.Context, loadoutID string) ([]core.LoadoutEntry, error)
+	// ListLoadoutEntriesFor batches a whole level of a nested loadout tree, so that
+	// resolving depth-5 nesting costs five queries rather than one per node.
+	ListLoadoutEntriesFor(ctx context.Context, loadoutIDs []string) (map[string][]core.LoadoutEntry, error)
+	GetLoadoutsByIDs(ctx context.Context, ids []string) (map[string]core.Loadout, error)
+	// LoadoutsReferencing is the reverse edge of the sub-loadout graph, needed because
+	// the depth check has to walk upwards from the parent as well as down from the child.
+	LoadoutsReferencing(ctx context.Context, childLoadoutID string) ([]string, error)
 
 	// Favorites
 	//
