@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>╚oadouts — Ultralight Backpacking Loadout</title>
+<meta name="description" content="Curate, track, and share your ultralight backpacking kit with classic RPG inventory mechanics: paperdoll equipment slots, rarity tiers, encumbrance analytics, and a three-layer metadata engine." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          void:    '#0d0f12',
+          panel:   '#15181e',
+          inner:   '#1b1f27',
+          edge:    '#272d38',
+          edge2:   '#333b49',
+          dim:     '#6b7484',
+          ink:     '#c9d1de',
+          gold:    '#fbbf24',
+          common:    '#9d9d9d',
+          uncommon:  '#1eff00',
+          rare:      '#0070dd',
+          epic:      '#a335ee',
+          legendary: '#ff8000',
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  html { background: #0d0f12; }
+  body {
+    background-color: #0d0f12;
+    /* Subtle surveyor's grid — reads as a technical backdrop, not a texture. */
+    background-image:
+      linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #0d0f12; }
+  ::-webkit-scrollbar-thumb { background: #272d38; border-radius: 6px; border: 2px solid #0d0f12; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4252; }
+
+  @keyframes riseIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+  .rise { animation: riseIn .22s cubic-bezier(.2,.7,.3,1) both; }
+
+  @keyframes tickPulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+  .tick { animation: tickPulse 1.6s ease-in-out infinite; }
+
+  @keyframes sheen { from { background-position: -220% 0 } to { background-position: 220% 0 } }
+  .sheen {
+    background-image: linear-gradient(100deg, transparent 38%, rgba(255,255,255,.16) 50%, transparent 62%);
+    background-size: 220% 100%;
+    animation: sheen 2.6s linear infinite;
+  }
+
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+
+  .no-native-focus:focus { outline: none; }
+  .no-native-focus:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
+</style>
+</head>
+<body class="font-sans text-ink antialiased">
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const RARITY = {
+  common:    { label: 'Common',    color: '#9d9d9d', glow: 'none',                          rank: 1 },
+  uncommon:  { label: 'Uncommon',  color: '#1eff00', glow: 'none',                          rank: 2 },
+  rare:      { label: 'Rare',      color: '#0070dd', glow: '0 0 10px rgba(0,112,221,.30)',  rank: 3 },
+  epic:      { label: 'Epic',      color: '#a335ee', glow: '0 0 14px rgba(163,53,238,.42)', rank: 4 },
+  legendary: { label: 'Legendary', color: '#ff8000', glow: '0 0 18px rgba(255,128,0,.50)',  rank: 5 },
+};
+
+const GOLD = '#fbbf24';
+const CAPACITY_LBS = 25.0;
+const BUFF_THRESHOLD_LBS = 10.0;
+
+const SLOTS = [
+  { id: 'head',  label: 'Head',       hint: 'Sun / Light'  },
+  { id: 'sos',   label: 'SOS Strap',  hint: 'Comms'        },
+  { id: 'torso', label: 'Torso',      hint: 'Active Layer' },
+  { id: 'back',  label: 'Back',       hint: 'Pack'         },
+  { id: 'hands', label: 'Hands',      hint: 'Poles'        },
+  { id: 'feet',  label: 'Feet',       hint: 'Footwear'     },
+];
+
+const FILTERS = [
+  { id: 'all',     label: 'All'     },
+  { id: 'camp',    label: 'Camp'    },
+  { id: 'gear',    label: 'Gear'    },
+  { id: 'rations', label: 'Rations' },
+];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ITEM DATA — a real, dialed ultralight kit
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const mk = (o) => ({
+  consumable: false,
+  wornSlot: null,
+  worn: false,
+  user: { overrideOz: null, publicNote: '', privateNote: '' },
+  ...o,
+});
+
+const INITIAL_ITEMS = [
+  /* ─── WORN ─────────────────────────────────────────────────────────── */
+  mk({
+    id: 'sun-hat', name: 'Solstice Sun Hat', short: 'Sun Hat', icon: '🧢',
+    rarity: 'common', category: 'gear', baseOz: 2.5, priceCents: 3400,
+    wornSlot: 'head', worn: true,
+    stats: [['UPF Rating', '50+'], ['Brim', '3.5 in'], ['Packable', 'Yes'], ['Vented', 'Mesh panel']],
+    global: { brand: 'Ventum', material: 'Ripstop Nylon', sku: 'VT-SH-05' },
+    community: { ulScore: 7.2, rating: 4.1, votes: 218, quote: 'Cheap, packable, does the job. The brim flaps in any real wind.' },
+  }),
+  mk({
+    id: 'inreach', name: 'inReach Mini 2', short: 'inReach', icon: '📡',
+    rarity: 'rare', category: 'gear', baseOz: 3.5, priceCents: 39900,
+    wornSlot: 'sos', worn: true,
+    stats: [['Battery', '14 days'], ['Network', 'Iridium'], ['SOS Coverage', 'Global'], ['Waterproof', 'IPX7']],
+    global: { brand: 'Garmin', material: 'Polycarbonate', sku: 'GR-IRM2' },
+    community: { ulScore: 8.8, rating: 4.7, votes: 1204, quote: 'Non-negotiable for solo shoulder-season trips. The subscription stings.' },
+  }),
+  mk({
+    id: 'alpha-hoodie', name: 'Alpha Direct Hoodie', short: 'Alpha Hoodie', icon: '👕',
+    rarity: 'rare', category: 'gear', baseOz: 4.9, priceCents: 18500,
+    wornSlot: 'torso', worn: true,
+    stats: [['Fabric Weight', '90 g/m²'], ['Warmth : Weight', 'Exceptional'], ['Breathability', 'Extreme'], ['Hood', 'Balaclava-cut']],
+    global: { brand: 'Senchi Designs', material: 'Polartec Alpha Direct', sku: 'SN-AD90-H' },
+    community: { ulScore: 9.4, rating: 4.9, votes: 2871, quote: 'Wear it, hike in it, sleep in it. Snags on literally everything.' },
+  }),
+  mk({
+    id: 'sw40', name: 'Southwest 40 Pack', short: 'SW40 Pack', icon: '🎒',
+    rarity: 'epic', category: 'gear', baseOz: 30.9, priceCents: 39900,
+    wornSlot: 'back', worn: true,
+    stats: [['Capacity', '40 L'], ['Max Load', '40 lb'], ['Fabric', 'DCH50'], ['Frame', 'Alu. stays']],
+    global: { brand: 'Hyperlite', material: 'Dyneema Composite', sku: 'HMG-SW40-WH' },
+    community: { ulScore: 9.1, rating: 4.6, votes: 1650, quote: 'Bombproof and genuinely waterproof. Hipbelt pockets are too small.' },
+  }),
+  mk({
+    id: 'z-poles', name: 'Carbon Z Trekking Poles', short: 'Z Poles', icon: '🦯',
+    rarity: 'rare', category: 'gear', baseOz: 10.4, priceCents: 20000,
+    wornSlot: 'hands', worn: true,
+    stats: [['Length', '120 cm'], ['Folded', '13 in'], ['Shaft', 'Carbon'], ['Sold As', 'Pair']],
+    global: { brand: 'Black Diamond', material: 'Carbon Fiber', sku: 'BD-CZ-120' },
+    community: { ulScore: 8.3, rating: 4.4, votes: 940, quote: 'Doubles as your tent poles. Never lever them sideways — they snap.' },
+  }),
+  mk({
+    id: 'trail-runners', name: 'Cloudveil Trail Runners', short: 'Trail Runners', icon: '👟',
+    rarity: 'uncommon', category: 'gear', baseOz: 20.6, priceCents: 14500,
+    wornSlot: 'feet', worn: true,
+    stats: [['Drop', '4 mm'], ['Stack', '33 mm'], ['Outsole', 'Megagrip'], ['Size', 'US 11']],
+    global: { brand: 'Altura', material: 'Engineered Mesh', sku: 'AL-CV-11' },
+    community: { ulScore: 7.9, rating: 4.2, votes: 610, quote: 'Drains fast, dries faster. Midsole packs out around 400 miles.' },
+  }),
+
+  /* ─── PACK: CAMP ───────────────────────────────────────────────────── */
+  mk({
+    id: 'aeon-li', name: 'Aeon Li Shelter', short: 'Aeon Li', icon: '⛺',
+    rarity: 'legendary', category: 'camp', baseOz: 15.6, priceCents: 69900,
+    stats: [['Capacity', '1 Person'], ['Fabric', 'DCF 0.51'], ['Peak Height', '45 in'], ['Seams', 'Taped']],
+    global: { brand: 'Tarptent', material: 'Dyneema Composite', sku: 'TT-AEONLI' },
+    community: { ulScore: 9.6, rating: 4.8, votes: 1420, quote: 'The benchmark sub-pound shelter. Condensation needs actively managing.' },
+    user: { overrideOz: null, publicNote: 'Seam-sealed myself — added roughly 0.3 oz.', privateNote: '' },
+  }),
+  mk({
+    id: 'zenith-quilt', name: 'Zenith 20° Quilt', short: 'Zenith Quilt', icon: '💤',
+    rarity: 'epic', category: 'camp', baseOz: 21.0, priceCents: 46500,
+    stats: [['Temp Rating', '20 °F'], ['Fill Power', '950'], ['Fill', 'Goose Down'], ['Baffles', 'Vertical']],
+    global: { brand: 'Katabatic Gear', material: '10D Nylon Shell', sku: 'KG-ZEN20-R' },
+    community: { ulScore: 9.2, rating: 4.7, votes: 980, quote: 'The pad attachment system is the best there is. Sized tight — size up.' },
+    user: { overrideOz: 21.6, publicNote: 'Weighed 21.6 oz on my scale, including the stuff sack.', privateNote: 'Paid $380 on the gear swap — do not tell anyone.' },
+  }),
+  mk({
+    id: 'ether-pad', name: 'Ether Sleep Pad', short: 'Ether Pad', icon: '🛏️',
+    rarity: 'rare', category: 'camp', baseOz: 13.0, priceCents: 21000,
+    stats: [['R-Value', '4.2'], ['Thickness', '3 in'], ['Packed', '9 × 4 in'], ['Noise', 'Moderate']],
+    global: { brand: 'Therm-a-Rest', material: '70D Nylon', sku: 'TAR-XLITE-R' },
+    community: { ulScore: 8.7, rating: 4.5, votes: 2210, quote: 'Warm and light. Sounds like a crisp packet every time you roll over.' },
+  }),
+  mk({
+    id: 'stakes', name: 'Dyneema Stakes ×6', short: 'Stakes ×6', icon: '📌',
+    rarity: 'common', category: 'camp', baseOz: 1.8, priceCents: 2400,
+    stats: [['Count', '6'], ['Length', '6 in'], ['Holding', 'Moderate'], ['Profile', 'Y-Beam']],
+    global: { brand: 'MSR', material: '7075 Aluminum', sku: 'MSR-GS-6' },
+    community: { ulScore: 6.8, rating: 3.9, votes: 430, quote: 'Bring two spares. They walk off in the dark and never come back.' },
+  }),
+  mk({
+    id: 'bear-can', name: 'BV450 Bear Canister', short: 'Bear Can', icon: '🛢️',
+    rarity: 'uncommon', category: 'camp', baseOz: 33.0, priceCents: 8500,
+    stats: [['Volume', '440 in³'], ['Capacity', '3–4 days'], ['Certified', 'IGBC'], ['Diameter', '8.7 in']],
+    global: { brand: 'BearVault', material: 'Polycarbonate', sku: 'BV-450' },
+    community: { ulScore: 5.4, rating: 3.6, votes: 1130, quote: 'Heavy and widely hated, but required across most of the Sierra.' },
+  }),
+
+  /* ─── PACK: GEAR ───────────────────────────────────────────────────── */
+  mk({
+    id: 'headlamp', name: 'NOVA 400 Headlamp', short: 'Headlamp', icon: '🔦',
+    rarity: 'rare', category: 'gear', baseOz: 2.5, priceCents: 6500,
+    wornSlot: 'head',
+    stats: [['Luminance', '400 lm'], ['Burn Time', '10 h'], ['Beam', '70 m'], ['Charge', 'USB-C']],
+    global: { brand: 'Nitecore', material: 'Aluminum Alloy', sku: 'NC-NU25-400' },
+    community: { ulScore: 8.5, rating: 4.6, votes: 1580, quote: '400 lumens you will never use. The 1-lumen moonlight mode is the point.' },
+  }),
+  mk({
+    id: 'stove', name: 'Ti Pocket Stove', short: 'Ti Stove', icon: '🔥',
+    rarity: 'uncommon', category: 'gear', baseOz: 0.8, priceCents: 4500,
+    stats: [['Output', '10,200 BTU'], ['Boil Time', '3:20 / L'], ['Fuel', 'Isobutane'], ['Supports', '3-arm']],
+    global: { brand: 'BRS', material: 'Titanium Alloy', sku: 'BRS-3000T' },
+    community: { ulScore: 8.0, rating: 4.0, votes: 3100, quote: 'Absurdly light for the money. Wind murders it — carry a screen.' },
+  }),
+  mk({
+    id: 'ti-pot', name: 'Ti 750 Pot', short: 'Ti 750', icon: '🍲',
+    rarity: 'uncommon', category: 'gear', baseOz: 3.2, priceCents: 5500,
+    stats: [['Capacity', '750 ml'], ['Lid', 'Titanium'], ['Markings', 'Yes'], ['Handle', 'Folding']],
+    global: { brand: 'Toaks', material: 'Grade 1 Titanium', sku: 'TK-750-L' },
+    community: { ulScore: 8.4, rating: 4.5, votes: 1890, quote: 'The default UL pot. A 100 g canister and the stove nest inside it.' },
+  }),
+  mk({
+    id: 'filter', name: 'Squeeze Water Filter', short: 'Filter', icon: '💧',
+    rarity: 'rare', category: 'gear', baseOz: 3.0, priceCents: 3900,
+    stats: [['Flow Rate', '1.7 L/min'], ['Pore Size', '0.1 micron'], ['Lifetime', '100k gal'], ['Backflush', 'Included']],
+    global: { brand: 'Sawyer', material: 'Hollow Fiber', sku: 'SW-SQ-MINI' },
+    community: { ulScore: 8.9, rating: 4.4, votes: 4200, quote: 'Never let it freeze — that kills it silently. Backflush at camp.' },
+  }),
+  mk({
+    id: 'powerbank', name: 'Nitecore 10K Powerbank', short: 'Powerbank', icon: '🔋',
+    rarity: 'common', category: 'gear', baseOz: 6.4, priceCents: 4900,
+    stats: [['Capacity', '10,000 mAh'], ['Output', '18 W PD'], ['Ports', '2'], ['Recharges', '≈3 phone']],
+    global: { brand: 'Nitecore', material: 'Aluminum Shell', sku: 'NC-NB10000' },
+    community: { ulScore: 7.7, rating: 4.3, votes: 860, quote: 'Best watt-hours per ounce going. The case dents if you look at it.' },
+  }),
+  mk({
+    id: 'wound-kit', name: 'Wound & Blister Kit', short: 'Wound Kit', icon: '🩹',
+    rarity: 'common', category: 'gear', baseOz: 3.5, priceCents: 2900,
+    stats: [['Duration', '3 day'], ['Leukotape', '2 m'], ['Meds', 'Ibu / Antihist.'], ['Sealed', 'Yes']],
+    global: { brand: 'Field Repair', material: 'Mixed', sku: 'FR-WBK-S' },
+    community: { ulScore: 7.0, rating: 4.0, votes: 340, quote: 'Leukotape and ibuprofen are ninety percent of trail medicine.' },
+  }),
+  mk({
+    id: 'rain-shell', name: 'Ultra Rain Shell', short: 'Rain Shell', icon: '🧥',
+    rarity: 'rare', category: 'gear', baseOz: 5.4, priceCents: 32000,
+    wornSlot: 'torso',
+    stats: [['Waterproof', '20,000 mm'], ['Breathable', '43,000 g'], ['Pit Zips', 'No'], ['Hood', 'Helmet-cut']],
+    global: { brand: 'Montbell', material: '3L Gore-Tex', sku: 'MB-VS-M' },
+    community: { ulScore: 8.6, rating: 4.5, votes: 720, quote: 'Under six ounces and actually waterproof. Treat the face fabric gently.' },
+  }),
+
+  /* ─── PACK: RATIONS ────────────────────────────────────────────────── */
+  mk({
+    id: 'rations', name: 'Trail Rations (3 Day)', short: 'Rations', icon: '🍫',
+    rarity: 'common', category: 'rations', baseOz: 54.0, priceCents: 8700, consumable: true,
+    stats: [['Calories', '9,600 kcal'], ['Density', '178 kcal/oz'], ['Duration', '3 days'], ['Prep', 'Cold-soak']],
+    global: { brand: 'Assorted', material: 'Food', sku: 'GEN-FOOD-3D' },
+    community: { ulScore: 7.4, rating: 4.1, votes: 520, quote: '180 kcal/oz is the bar. Below that you are carrying packaging.' },
+  }),
+  mk({
+    id: 'water', name: 'Smartwater 2 L Carry', short: 'Water 2 L', icon: '🥤',
+    rarity: 'common', category: 'rations', baseOz: 70.5, priceCents: 400, consumable: true,
+    stats: [['Volume', '2 L'], ['Bottles', '2'], ['Cap', 'Sport'], ['Carry Cost', '2.2 lb/L']],
+    global: { brand: 'Smartwater', material: 'PET', sku: 'SW-1L-X2' },
+    community: { ulScore: 8.1, rating: 4.6, votes: 2600, quote: 'The threads match the Sawyer. That is the entire reason anyone buys it.' },
+  }),
+  mk({
+    id: 'lytes', name: 'Electrolyte Tabs', short: 'Lytes', icon: '🧂',
+    rarity: 'uncommon', category: 'rations', baseOz: 1.2, priceCents: 1500, consumable: true,
+    stats: [['Servings', '10'], ['Sodium', '300 mg'], ['Sugar', '0 g'], ['Flavour', 'Citrus']],
+    global: { brand: 'Nuun', material: 'Effervescent', sku: 'NU-SPT-CIT' },
+    community: { ulScore: 7.6, rating: 4.2, votes: 410, quote: 'Cheap insurance against a screaming headache on a big climb.' },
+  }),
+];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HELPERS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const effOz  = (it) => (it.user.overrideOz != null ? it.user.overrideOz : it.baseOz);
+const toLbs  = (oz) => oz / 16;
+const fmtLbs = (oz) => toLbs(oz).toFixed(2);
+const fmtOz  = (oz) => `${oz.toFixed(1)}oz`;
+const fmtUSD = (c)  => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRIMITIVES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function Panel({ children, className = '', ...rest }) {
+  return (
+    <div
+      {...rest}
+      className={`bg-panel border border-edge rounded-xl shadow-[0_1px_0_rgba(255,255,255,.03)_inset,0_10px_30px_-12px_rgba(0,0,0,.8)] ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SectionTitle({ children, right }) {
+  return (
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <h2 className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-dim">{children}</h2>
+      {right}
+    </div>
+  );
+}
+
+function Btn({ children, onClick, tone = 'ghost', disabled, className = '', title, id }) {
+  const tones = {
+    ghost:  'bg-inner border-edge text-ink hover:border-edge2 hover:bg-[#212734]',
+    gold:   'bg-gold/10 border-gold/40 text-gold hover:bg-gold/20 hover:border-gold/70',
+    danger: 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20',
+  };
+  return (
+    <button
+      id={id}
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`no-native-focus px-3 py-2 rounded-lg border text-xs font-semibold transition-all duration-150
+        disabled:opacity-35 disabled:cursor-not-allowed active:scale-[.97] ${tones[tone]} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   A. HEADER + PROFILE BANNER
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function Header({ forks, onFork, onShare }) {
+  return (
+    <header className="sticky top-0 z-40 backdrop-blur-xl bg-void/85 border-b border-edge">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight text-white shrink-0">
+            <span className="text-gold">╚</span>oadouts
+          </h1>
+          <span className="hidden sm:inline font-mono text-[10px] text-dim border border-edge rounded px-1.5 py-0.5 shrink-0">
+            v0.1 · DAY 0
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Btn id="btn-fork" onClick={onFork} tone="ghost" title="Copy this loadout into your own account">
+            <span className="mr-1.5">⑂</span>Fork<span className="hidden sm:inline"> Loadout</span>
+            <span className="ml-1.5 font-mono text-dim">({forks})</span>
+          </Btn>
+          <Btn id="btn-share" onClick={onShare} tone="gold" title="Copy a shareable link">
+            <span className="mr-1.5">⇗</span>Share<span className="hidden sm:inline"> Loadout</span>
+          </Btn>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function ProfileBanner({ totalValue, slotCount, wornCount }) {
+  return (
+    <Panel className="p-5 overflow-hidden relative">
+      <div
+        className="absolute inset-0 opacity-[.5] pointer-events-none"
+        style={{ background: 'radial-gradient(680px 130px at 8% 0%, rgba(251,191,36,.10), transparent 70%)' }}
+      />
+      <div className="relative flex flex-wrap items-center gap-x-8 gap-y-5 justify-between">
+        <div className="flex items-center gap-4 min-w-0">
+          <div
+            className="w-14 h-14 rounded-xl grid place-items-center text-2xl shrink-0 border"
+            style={{ borderColor: 'rgba(251,191,36,.45)', background: 'rgba(251,191,36,.08)', boxShadow: '0 0 22px rgba(251,191,36,.14)' }}
+          >
+            🥾
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-lg font-bold text-white truncate">Gearhead</span>
+              <span
+                className="font-mono text-[9px] font-bold uppercase tracking-[.14em] px-2 py-1 rounded border"
+                style={{ color: GOLD, borderColor: 'rgba(251,191,36,.35)', background: 'rgba(251,191,36,.07)' }}
+              >
+                ★ Master Ultralight Pathfinder
+              </span>
+            </div>
+            <div className="text-[13px] text-dim mt-1 truncate">
+              <span className="text-ink/80">r/UltralightBackpacking</span>
+              <span className="mx-2 text-edge2">·</span>
+              Sierra High Route · 3-day carry
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-8 sm:gap-10">
+          <Metric label="Est. Value" value={fmtUSD(totalValue)} accent />
+          <Metric label="Slots Filled" value={`${slotCount}`} sub={`${wornCount} worn`} />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function Metric({ label, value, sub, accent }) {
+  return (
+    <div>
+      <div className="font-mono text-[9px] uppercase tracking-[.18em] text-dim mb-1">{label}</div>
+      <div className={`font-mono text-xl font-bold tabular-nums ${accent ? 'text-gold' : 'text-white'}`}>{value}</div>
+      {sub && <div className="font-mono text-[10px] text-dim mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   B. ENCUMBRANCE & STAT ANALYTICS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function Encumbrance({ w }) {
+  const pct      = Math.min(100, (toLbs(w.packOz) / CAPACITY_LBS) * 100);
+  const over     = toLbs(w.packOz) > CAPACITY_LBS;
+  const buffOn   = toLbs(w.baseOz) < BUFF_THRESHOLD_LBS;
+  const barColor = over ? '#ef4444' : pct > 85 ? '#f59e0b' : pct > 60 ? '#eab308' : '#22c55e';
+  const headroom = CAPACITY_LBS - toLbs(w.packOz);
+
+  return (
+    <Panel className="p-5">
+      <SectionTitle right={<span className="font-mono text-[10px] text-dim">capacity {CAPACITY_LBS.toFixed(1)} lb</span>}>
+        Encumbrance Analytics
+      </SectionTitle>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <StatBar label="Base Weight"     oz={w.baseOz}       total={w.skinOutOz} color="#22c55e" hint="Pack contents, consumables excluded" />
+        <StatBar label="Consumables"     oz={w.consumableOz} total={w.skinOutOz} color="#eab308" hint="Food, water, fuel — burns down as you walk" />
+        <StatBar label="Worn / Equipped" oz={w.wornOz}       total={w.skinOutOz} color="#0070dd" hint="Carried on the body, not in the pack" />
+        <StatBar label="Total Skin-Out"  oz={w.skinOutOz}    total={w.skinOutOz} color="#e5e7eb" hint="Everything, including what you are wearing" emphasis />
+      </div>
+
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-mono text-[10px] uppercase tracking-[.18em] text-dim">Carrying Capacity</span>
+        <span className="font-mono text-[11px] tabular-nums" style={{ color: barColor }}>
+          {fmtLbs(w.packOz)} / {CAPACITY_LBS.toFixed(1)} lb · {pct.toFixed(0)}%
+        </span>
+      </div>
+
+      <div className="h-3 rounded-full bg-inner border border-edge overflow-hidden relative">
+        <div
+          className="h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden"
+          style={{ width: `${Math.max(pct, 1.5)}%`, background: barColor, boxShadow: `0 0 14px ${barColor}66` }}
+        >
+          <div className="absolute inset-0 sheen" />
+        </div>
+        {[25, 50, 75].map((t) => (
+          <div key={t} className="absolute top-0 bottom-0 w-px bg-void/70" style={{ left: `${t}%` }} />
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-colors duration-300"
+          style={
+            buffOn
+              ? { borderColor: 'rgba(30,255,0,.35)', background: 'rgba(30,255,0,.07)', color: '#86efac' }
+              : { borderColor: '#272d38', background: '#1b1f27', color: '#6b7484' }
+          }
+        >
+          <span className={`text-sm ${buffOn ? 'tick' : ''}`}>{buffOn ? '✦' : '○'}</span>
+          <span className="font-mono text-[11px] font-bold tracking-wide">
+            {buffOn ? 'Ultralight Buff Active (+15% Movement Speed)' : 'Buff Inactive — base weight over 10.00 lb'}
+          </span>
+        </div>
+
+        <span className="font-mono text-[10px] text-dim">
+          {over
+            ? `⚠ ${Math.abs(headroom).toFixed(2)} lb over capacity`
+            : `${headroom.toFixed(2)} lb of headroom remaining`}
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+function StatBar({ label, oz, total, color, hint, emphasis }) {
+  const pct = total > 0 ? (oz / total) * 100 : 0;
+  return (
+    <div className="bg-inner border border-edge rounded-lg p-3" title={hint}>
+      <div className="font-mono text-[9px] uppercase tracking-[.16em] text-dim mb-1.5 truncate">{label}</div>
+      <div className={`font-mono font-bold tabular-nums text-lg ${emphasis ? 'text-white' : 'text-ink'}`}>
+        {fmtLbs(oz)}
+        <span className="text-dim text-[11px] font-medium ml-1">lb</span>
+      </div>
+      <div className="font-mono text-[10px] text-dim mt-0.5">{oz.toFixed(1)} oz</div>
+      <div className="h-1 rounded-full bg-void mt-2 overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   C. PAPERDOLL — SVG silhouette + surrounding slots
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function Silhouette({ activePart }) {
+  const on = (p) => activePart === p;
+  const partStyle = (p) =>
+    on(p)
+      ? { fill: GOLD, stroke: '#fde68a', strokeWidth: 1.5, filter: 'url(#goldGlow)' }
+      : { fill: '#232936', stroke: '#39414f', strokeWidth: 1.5 };
+  const strokeStyle = (p) =>
+    on(p) ? { stroke: GOLD, filter: 'url(#goldGlow)' } : { stroke: '#39414f' };
+
+  return (
+    <svg viewBox="0 0 240 380" className="w-full h-auto max-h-[380px]" role="img" aria-label="Hiker equipment silhouette">
+      <defs>
+        <filter id="goldGlow" x="-70%" y="-70%" width="240%" height="240%">
+          <feGaussianBlur stdDeviation="4.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <radialGradient id="floor" cx="50%" cy="50%">
+          <stop offset="0%"   stopColor="#fbbf24" stopOpacity=".10" />
+          <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <ellipse cx="120" cy="348" rx="86" ry="16" fill="url(#floor)" />
+
+      {/* BACK / PACK — drawn first so it reads as being behind the hiker */}
+      <g style={partStyle('back')}>
+        <rect x="54" y="72" width="132" height="124" rx="24" />
+        <rect x="70" y="96" width="100" height="30" rx="9" opacity=".38" />
+        <rect x="70" y="140" width="100" height="22" rx="8" opacity=".26" />
+      </g>
+
+      {/* LEGS — never a slot, always inert */}
+      <g fill="#1e2430" stroke="#333b49" strokeWidth="1.5">
+        <path d="M99 202 q-5 56 -8 108 l22 0 q3 -54 7 -108 z" />
+        <path d="M141 202 q5 56 8 108 l-22 0 q-3 -54 -7 -108 z" />
+      </g>
+
+      {/* TORSO */}
+      <g style={partStyle('torso')}>
+        <path d="M88 92 L152 92 Q162 92 162 104 L155 196 Q154 208 142 208 L98 208 Q86 208 85 196 L78 104 Q78 92 88 92 Z" />
+      </g>
+
+      {/* HEAD */}
+      <g style={partStyle('head')}>
+        <circle cx="120" cy="56" r="27" />
+        <rect x="83" y="42" width="74" height="10" rx="5" />
+      </g>
+
+      {/* SOS STRAP */}
+      <g style={partStyle('sos')}>
+        <rect x="88" y="116" width="64" height="9" rx="4.5" />
+        <rect x="130" y="106" width="20" height="25" rx="5" />
+        <circle cx="140" cy="118" r="3.2" fill={on('sos') ? '#7c2d12' : '#556'} stroke="none" />
+      </g>
+
+      {/* HANDS / POLES */}
+      <g style={partStyle('hands')}>
+        <circle cx="62" cy="180" r="11" />
+        <circle cx="178" cy="180" r="11" />
+        <rect x="56" y="150" width="12" height="26" rx="6" opacity=".55" />
+        <rect x="172" y="150" width="12" height="26" rx="6" opacity=".55" />
+      </g>
+      <g fill="none" strokeWidth="5" strokeLinecap="round" style={strokeStyle('hands')}>
+        <path d="M84 110 Q66 142 62 172" />
+        <path d="M156 110 Q174 142 178 172" />
+      </g>
+      <g fill="none" strokeWidth="3.5" strokeLinecap="round" style={strokeStyle('hands')} opacity={on('hands') ? 1 : .55}>
+        <path d="M58 158 L48 332" />
+        <path d="M182 158 L192 332" />
+      </g>
+
+      {/* FEET */}
+      <g style={partStyle('feet')}>
+        <path d="M92 306 q-18 0 -18 14 l0 10 q0 7 7 7 l36 0 q7 0 7 -7 l0 -24 z" />
+        <path d="M148 306 q18 0 18 14 l0 10 q0 7 -7 7 l-36 0 q-7 0 -7 -7 l0 -24 z" />
+      </g>
+    </svg>
+  );
+}
+
+function PaperdollSlot({ slot, item, selected, onSelect }) {
+  const r = item ? RARITY[item.rarity] : null;
+  return (
+    <button
+      id={`paperdoll-slot-${slot.id}`}
+      onClick={() => item && onSelect(item.id)}
+      disabled={!item}
+      aria-pressed={selected}
+      className={`no-native-focus group relative w-full text-left rounded-lg border p-2.5 transition-all duration-200
+        ${item ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default opacity-55'}`}
+      style={{
+        background: selected ? 'rgba(251,191,36,.09)' : '#1b1f27',
+        borderColor: selected ? GOLD : r ? `${r.color}55` : '#272d38',
+        boxShadow: selected ? '0 0 0 2px rgba(251,191,36,.30), 0 0 20px rgba(251,191,36,.22)' : r ? r.glow : 'none',
+      }}
+    >
+      {selected && (
+        <span
+          className="tick absolute -top-2 right-2 font-mono text-[8px] font-bold tracking-[.14em] px-1.5 py-0.5 rounded"
+          style={{ background: GOLD, color: '#0d0f12' }}
+        >
+          ACTIVE
+        </span>
+      )}
+
+      <div className="font-mono text-[8px] uppercase tracking-[.16em] text-dim mb-1.5">{slot.label}</div>
+
+      {item ? (
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xl leading-none shrink-0">{item.icon}</span>
+          <span className="min-w-0">
+            <span className="block text-[11px] font-semibold truncate leading-tight" style={{ color: r.color }}>
+              {item.short}
+            </span>
+            <span className="block font-mono text-[10px] text-dim tabular-nums">{fmtOz(effOz(item))}</span>
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-dim">
+          <span className="text-xl leading-none opacity-30">◇</span>
+          <span className="text-[11px] italic">{slot.hint}</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
+function Paperdoll({ wornBySlot, selectedId, onSelect, wornOz }) {
+  const selectedSlot = useMemo(() => {
+    const hit = Object.entries(wornBySlot).find(([, it]) => it && it.id === selectedId);
+    return hit ? hit[0] : null;
+  }, [wornBySlot, selectedId]);
+
+  const col = (ids) => (
+    <div className="flex flex-col gap-2.5">
+      {ids.map((id) => (
+        <PaperdollSlot
+          key={id}
+          slot={SLOTS.find((s) => s.id === id)}
+          item={wornBySlot[id]}
+          selected={!!wornBySlot[id] && wornBySlot[id].id === selectedId}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  );
+
+  return (
+    <Panel className="p-5">
+      <SectionTitle right={<span className="font-mono text-[10px] text-dim tabular-nums">{fmtLbs(wornOz)} lb worn</span>}>
+        Equipped · Paperdoll
+      </SectionTitle>
+
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
+        {col(['head', 'sos', 'torso'])}
+        <div className="w-[150px] sm:w-[180px] px-1">
+          <Silhouette activePart={selectedSlot} />
+        </div>
+        {col(['back', 'hands', 'feet'])}
+      </div>
+    </Panel>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   D. 4×4 BAG GRID
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function BagCell({ item, index, selected, onSelect }) {
+  if (!item) {
+    return (
+      <div className="aspect-square rounded-lg border border-dashed border-edge/70 bg-inner/30 grid place-items-center">
+        <span className="font-mono text-[9px] text-edge2 tabular-nums">{index + 1}</span>
+      </div>
+    );
+  }
+  const r = RARITY[item.rarity];
+  const overridden = item.user.overrideOz != null;
+
+  return (
+    <button
+      id={`bag-cell-${item.id}`}
+      onClick={() => onSelect(item.id)}
+      aria-pressed={selected}
+      title={`${item.name} — ${r.label}`}
+      className="no-native-focus group relative aspect-square rounded-lg border transition-all duration-200 overflow-hidden
+                 hover:-translate-y-0.5 active:scale-[.97] bg-inner"
+      style={{
+        borderColor: selected ? GOLD : r.color,
+        boxShadow: selected ? '0 0 0 2px rgba(251,191,36,.32), 0 0 22px rgba(251,191,36,.24)' : r.glow,
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-[.11] group-hover:opacity-[.20] transition-opacity"
+        style={{ background: `radial-gradient(circle at 50% 118%, ${r.color}, transparent 68%)` }}
+      />
+
+      <span className="absolute top-1 left-1.5 font-mono text-[9px] text-dim tabular-nums z-10">{index + 1}</span>
+      <span
+        className="absolute top-1 right-1.5 font-mono text-[9px] tabular-nums z-10"
+        style={{ color: overridden ? GOLD : '#6b7484' }}
+        title={overridden ? 'Custom weight override in effect' : 'Manufacturer weight'}
+      >
+        {effOz(item).toFixed(1)}oz
+      </span>
+
+      <div className="relative h-full flex flex-col items-center justify-center gap-1 px-1 pt-3">
+        <span className="text-[26px] leading-none drop-shadow-[0_2px_6px_rgba(0,0,0,.6)]">{item.icon}</span>
+        <span className="text-[10px] font-semibold text-center leading-tight line-clamp-2 px-0.5" style={{ color: r.color }}>
+          {item.short}
+        </span>
+      </div>
+
+      {item.consumable && (
+        <span className="absolute bottom-1 left-1.5 font-mono text-[8px] text-amber-500/80 tracking-wider">CONS</span>
+      )}
+      {selected && (
+        <span className="tick absolute bottom-1 right-1.5 font-mono text-[8px] font-bold tracking-wider" style={{ color: GOLD }}>
+          ◆
+        </span>
+      )}
+    </button>
+  );
+}
+
+function BagGrid({ bag, filter, setFilter, selectedId, onSelect, onAutoSort, baseOz, consumableOz }) {
+  const shown = filter === 'all' ? bag : bag.filter((i) => i.category === filter);
+  const cells = Math.max(16, Math.ceil(shown.length / 4) * 4);
+
+  return (
+    <Panel className="p-5">
+      <SectionTitle right={<span className="font-mono text-[10px] text-dim tabular-nums">{shown.length} / {cells} slots</span>}>
+        Pack Inventory
+      </SectionTitle>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex gap-1 bg-inner border border-edge rounded-lg p-1">
+          {FILTERS.map((f) => {
+            const active = filter === f.id;
+            const n = f.id === 'all' ? bag.length : bag.filter((i) => i.category === f.id).length;
+            return (
+              <button
+                key={f.id}
+                id={`filter-${f.id}`}
+                onClick={() => setFilter(f.id)}
+                className={`no-native-focus px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all
+                  ${active ? 'bg-gold/15 text-gold' : 'text-dim hover:text-ink hover:bg-white/5'}`}
+              >
+                {f.label}
+                <span className="ml-1.5 font-mono text-[10px] opacity-60">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex-1" />
+        <Btn id="btn-autosort" onClick={onAutoSort} title="Sort by rarity, then by weight">
+          <span className="mr-1.5">⇅</span>Auto-Sort Bag
+        </Btn>
+      </div>
+
+      <div className="grid grid-cols-4 gap-2.5">
+        {Array.from({ length: cells }, (_, i) => (
+          <BagCell
+            key={shown[i] ? shown[i].id : `ghost-${i}`}
+            item={shown[i]}
+            index={i}
+            selected={!!shown[i] && shown[i].id === selectedId}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-edge flex flex-wrap gap-x-6 gap-y-1.5 font-mono text-[10px] text-dim">
+        <span>base <span className="text-ink tabular-nums">{fmtLbs(baseOz)} lb</span></span>
+        <span>consumable <span className="text-ink tabular-nums">{fmtLbs(consumableOz)} lb</span></span>
+        <span>in pack <span className="text-ink tabular-nums">{fmtLbs(baseOz + consumableOz)} lb</span></span>
+      </div>
+    </Panel>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   E. INSPECTOR — RPG tooltip + 3-layer metadata engine
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function KV({ k, v, mono }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 text-[12px]">
+      <span className="text-dim shrink-0">{k}</span>
+      <span className={`text-ink text-right ${mono ? 'font-mono tabular-nums text-[11px]' : ''}`}>{v}</span>
+    </div>
+  );
+}
+
+function LayerNote({ children }) {
+  return <p className="text-[10px] text-dim leading-relaxed pb-1 border-b border-edge/60 mb-3">{children}</p>;
+}
+
+function Inspector({ item, onOverride, onResetOverride, onNote, onToggleEquip, blockedReason }) {
+  const [layer, setLayer] = useState('global');
+  const [draft, setDraft] = useState('');
+
+  const itemId = item ? item.id : null;
+  const itemOverride = item ? item.user.overrideOz : null;
+  useEffect(() => {
+    setDraft(itemOverride != null ? String(itemOverride) : '');
+  }, [itemId, itemOverride]);
+
+  if (!item) {
+    return (
+      <Panel className="p-8 text-center">
+        <div className="text-3xl mb-3 opacity-40">◇</div>
+        <div className="text-sm text-dim">Select an item to inspect it.</div>
+      </Panel>
+    );
+  }
+
+  const r = RARITY[item.rarity];
+  const overridden = item.user.overrideOz != null;
+  const delta = overridden ? item.user.overrideOz - item.baseOz : 0;
+
+  function commitDraft(v) {
+    setDraft(v);
+    if (v.trim() === '') { onResetOverride(item.id); return; }
+    const n = parseFloat(v);
+    if (!isNaN(n) && n >= 0 && n < 1000) onOverride(item.id, Math.round(n * 10) / 10);
+  }
+
+  return (
+    <Panel className="overflow-hidden rise" key={item.id}>
+      {/* ── Tooltip header ── */}
+      <div className="p-5 border-b border-edge relative" style={{ background: `linear-gradient(160deg, ${r.color}1f, transparent 65%)` }}>
+        <div className="flex items-start gap-3.5">
+          <div
+            className="w-14 h-14 rounded-lg grid place-items-center text-3xl shrink-0 border bg-void/55"
+            style={{ borderColor: r.color, boxShadow: r.glow }}
+          >
+            {item.icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-bold leading-tight" style={{ color: r.color, textShadow: `0 0 18px ${r.color}4d` }}>
+              {item.name}
+            </h3>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+              <span className="font-mono text-[9px] font-bold uppercase tracking-[.16em]" style={{ color: r.color }}>
+                {r.label}
+              </span>
+              <span className="text-edge2">·</span>
+              <span className="font-mono text-[9px] uppercase tracking-[.14em] text-dim">{item.category}</span>
+              {item.consumable && (
+                <React.Fragment>
+                  <span className="text-edge2">·</span>
+                  <span className="font-mono text-[9px] uppercase tracking-[.14em] text-amber-500">Consumable</span>
+                </React.Fragment>
+              )}
+            </div>
+            <div className="mt-2">
+              <span
+                className="font-mono text-[9px] font-bold uppercase tracking-[.14em] px-2 py-0.5 rounded border"
+                style={
+                  item.worn
+                    ? { color: GOLD, borderColor: 'rgba(251,191,36,.4)', background: 'rgba(251,191,36,.08)' }
+                    : { color: '#6b7484', borderColor: '#272d38', background: '#1b1f27' }
+                }
+              >
+                {item.worn ? '✦ Equipped' : 'Stowed in pack'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Stat table ── */}
+      <div className="p-5 border-b border-edge">
+        <div className="space-y-1.5">
+          {item.stats.map(([k, v]) => (
+            <div key={k} className="flex items-baseline justify-between gap-4 text-[12px]">
+              <span className="text-dim">{k}</span>
+              <span className="font-mono text-ink tabular-nums text-right">{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-edge space-y-1.5">
+          <div className="flex items-baseline justify-between gap-4 text-[12px]">
+            <span className="text-dim">Vendor Price</span>
+            <span className="font-mono text-gold tabular-nums">{fmtUSD(item.priceCents)}</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-4 text-[12px]">
+            <span className="text-dim">Effective Weight</span>
+            <span className="font-mono tabular-nums font-bold" style={{ color: overridden ? GOLD : '#c9d1de' }}>
+              {fmtOz(effOz(item))}
+              {overridden && (
+                <span className="ml-1.5 text-[10px] font-medium opacity-80">
+                  ({delta >= 0 ? '+' : ''}{delta.toFixed(1)})
+                </span>
+              )}
+            </span>
+          </div>
+          {overridden && (
+            <div className="font-mono text-[10px] text-dim text-right">manufacturer spec {fmtOz(item.baseOz)}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── 3-layer metadata engine ── */}
+      <div className="p-5 border-b border-edge">
+        <div className="flex gap-1 bg-inner border border-edge rounded-lg p-1 mb-4">
+          {[['global', 'Global'], ['community', 'Community'], ['user', 'User']].map(([id, label]) => (
+            <button
+              key={id}
+              id={`layer-tab-${id}`}
+              onClick={() => setLayer(id)}
+              className={`no-native-focus flex-1 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-all
+                ${layer === id ? 'bg-gold/15 text-gold' : 'text-dim hover:text-ink hover:bg-white/5'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {layer === 'global' && (
+          <div className="rise space-y-2.5">
+            <LayerNote>Immutable manufacturer baseline. Shared by every loadout on the platform.</LayerNote>
+            <KV k="Brand"       v={item.global.brand} />
+            <KV k="Material"    v={item.global.material} />
+            <KV k="SKU"         v={item.global.sku} mono />
+            <KV k="Spec Weight" v={fmtOz(item.baseOz)} mono />
+          </div>
+        )}
+
+        {layer === 'community' && (
+          <div className="rise space-y-2.5">
+            <LayerNote>Contributed by <span className="text-ink/80">r/UltralightBackpacking</span>. Visible inside the community.</LayerNote>
+            <div>
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="font-mono text-[9px] uppercase tracking-[.16em] text-dim">UL Score</span>
+                <span className="font-mono text-sm font-bold tabular-nums" style={{ color: GOLD }}>
+                  {item.community.ulScore.toFixed(1)}<span className="text-dim text-[10px] font-normal">/10</span>
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-void overflow-hidden border border-edge">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${item.community.ulScore * 10}%`, background: GOLD, boxShadow: `0 0 10px ${GOLD}77` }}
+                />
+              </div>
+            </div>
+            <KV k="Rating" v={`${'★'.repeat(Math.round(item.community.rating))}${'☆'.repeat(5 - Math.round(item.community.rating))}  ${item.community.rating.toFixed(1)}`} />
+            <KV k="Votes"  v={item.community.votes.toLocaleString()} mono />
+            <blockquote
+              className="mt-3 text-[12px] italic text-ink/75 leading-relaxed border-l-2 pl-3 py-1"
+              style={{ borderColor: `${r.color}99` }}
+            >
+              “{item.community.quote}”
+              <footer className="not-italic text-[10px] text-dim mt-1.5">— community consensus</footer>
+            </blockquote>
+          </div>
+        )}
+
+        {layer === 'user' && (
+          <div className="rise space-y-3">
+            <LayerNote>Your personal layer. Overrides everything above it, for your loadouts only.</LayerNote>
+
+            <div>
+              <label htmlFor="weight-override" className="font-mono text-[9px] uppercase tracking-[.16em] text-dim block mb-1.5">
+                Custom Weight Override (oz)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="weight-override"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={draft}
+                  placeholder={item.baseOz.toFixed(1)}
+                  onChange={(e) => commitDraft(e.target.value)}
+                  className="no-native-focus flex-1 min-w-0 bg-void border rounded-lg px-3 py-2 font-mono text-sm tabular-nums
+                             text-ink placeholder:text-edge2 transition-colors"
+                  style={{ borderColor: overridden ? 'rgba(251,191,36,.5)' : '#272d38' }}
+                />
+                <Btn onClick={() => { onResetOverride(item.id); setDraft(''); }} disabled={!overridden} title="Revert to manufacturer spec">
+                  Reset
+                </Btn>
+              </div>
+              <p className="text-[10px] text-dim mt-1.5 leading-relaxed">
+                Weigh it yourself — manufacturer numbers are optimistic. Edits recalculate every stat above in real time.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="public-note" className="font-mono text-[9px] uppercase tracking-[.16em] text-dim block mb-1.5">
+                Public Note <span className="text-edge2 normal-case tracking-normal">· visible on your profile</span>
+              </label>
+              <textarea
+                id="public-note"
+                rows="2"
+                value={item.user.publicNote}
+                placeholder="What others should know…"
+                onChange={(e) => onNote(item.id, 'publicNote', e.target.value)}
+                className="no-native-focus w-full bg-void border border-edge rounded-lg px-3 py-2 text-[12px] text-ink
+                           placeholder:text-edge2 resize-none leading-relaxed"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="private-note" className="font-mono text-[9px] uppercase tracking-[.16em] text-dim block mb-1.5">
+                Private Note <span className="text-edge2 normal-case tracking-normal">· never served to anyone else</span>
+              </label>
+              <textarea
+                id="private-note"
+                rows="2"
+                value={item.user.privateNote}
+                placeholder="Just for you…"
+                onChange={(e) => onNote(item.id, 'privateNote', e.target.value)}
+                className="no-native-focus w-full bg-void border border-dashed border-edge rounded-lg px-3 py-2 text-[12px] text-ink
+                           placeholder:text-edge2 resize-none leading-relaxed"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Action controls ── */}
+      <div className="p-5">
+        <Btn
+          id="btn-equip-toggle"
+          tone={item.worn ? 'ghost' : 'gold'}
+          onClick={() => onToggleEquip(item.id)}
+          disabled={!!blockedReason}
+          className="w-full py-2.5"
+          title={blockedReason || undefined}
+        >
+          {item.worn ? '↓ Unequip — Move to Bag' : '↑ Equip Gear — Mark as Worn'}
+        </Btn>
+        {blockedReason && <p className="text-[10px] text-dim mt-2 text-center leading-relaxed">{blockedReason}</p>}
+      </div>
+    </Panel>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOAST
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-6 right-6 z-50 rise">
+      <div
+        className="flex items-center gap-2.5 px-4 py-3 rounded-xl border backdrop-blur-xl shadow-2xl"
+        style={{ background: 'rgba(21,24,30,.94)', borderColor: 'rgba(251,191,36,.35)' }}
+      >
+        <span style={{ color: GOLD }}>✦</span>
+        <span className="text-[12px] text-ink">{toast}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   APP
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function App() {
+  const [items, setItems]           = useState(INITIAL_ITEMS);
+  const [selectedId, setSelectedId] = useState('aeon-li');
+  const [filter, setFilter]         = useState('all');
+  const [forks, setForks]           = useState(128);
+  const [toast, setToast]           = useState(null);
+
+  const timer = useRef(null);
+  const say = useCallback((msg) => {
+    setToast(msg);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const worn = useMemo(() => items.filter((i) => i.worn), [items]);
+  const bag  = useMemo(() => items.filter((i) => !i.worn), [items]);
+
+  const wornBySlot = useMemo(() => {
+    const m = {};
+    SLOTS.forEach((s) => { m[s.id] = worn.find((i) => i.wornSlot === s.id) || null; });
+    return m;
+  }, [worn]);
+
+  const w = useMemo(() => {
+    const sum = (arr) => arr.reduce((t, i) => t + effOz(i), 0);
+    const baseOz       = sum(bag.filter((i) => !i.consumable));
+    const consumableOz = sum(bag.filter((i) => i.consumable));
+    const wornOz       = sum(worn);
+    return { baseOz, consumableOz, wornOz, packOz: baseOz + consumableOz, skinOutOz: baseOz + consumableOz + wornOz };
+  }, [bag, worn]);
+
+  const totalValue = useMemo(() => items.reduce((t, i) => t + i.priceCents, 0), [items]);
+  const selected   = useMemo(() => items.find((i) => i.id === selectedId) || null, [items, selectedId]);
+
+  /* ── mutations ── */
+
+  const patch = (id, fn) => setItems((prev) => prev.map((i) => (i.id === id ? fn(i) : i)));
+
+  const onOverride      = (id, oz)      => patch(id, (i) => ({ ...i, user: { ...i.user, overrideOz: oz } }));
+  const onResetOverride = (id)          => patch(id, (i) => ({ ...i, user: { ...i.user, overrideOz: null } }));
+  const onNote          = (id, k, val)  => patch(id, (i) => ({ ...i, user: { ...i.user, [k]: val } }));
+
+  function onToggleEquip(id) {
+    setItems((prev) => {
+      const target = prev.find((i) => i.id === id);
+      if (!target || !target.wornSlot) return prev;
+
+      if (target.worn) {
+        say(`${target.short} moved to your pack.`);
+        return prev.map((i) => (i.id === id ? { ...i, worn: false } : i));
+      }
+
+      // Equipping displaces whatever already occupies that paperdoll slot.
+      const displaced = prev.find((i) => i.worn && i.wornSlot === target.wornSlot);
+      say(displaced ? `${target.short} equipped — ${displaced.short} stowed.` : `${target.short} equipped.`);
+      return prev.map((i) => {
+        if (i.id === id) return { ...i, worn: true };
+        if (displaced && i.id === displaced.id) return { ...i, worn: false };
+        return i;
+      });
+    });
+  }
+
+  function onAutoSort() {
+    setItems((prev) => {
+      const wornPart = prev.filter((i) => i.worn);
+      const bagPart  = prev.filter((i) => !i.worn).sort((a, b) => {
+        const d = RARITY[b.rarity].rank - RARITY[a.rarity].rank;
+        return d !== 0 ? d : effOz(b) - effOz(a);
+      });
+      return wornPart.concat(bagPart);
+    });
+    say('Bag sorted by rarity, then weight.');
+  }
+
+  function onFork() {
+    setForks((n) => n + 1);
+    say('Forked into your account. It is yours to edit.');
+  }
+
+  function onShare() {
+    const url = 'https://loadouts.app/l/gearhead/sierra-high-route';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => say('Share link copied to your clipboard.'), () => say(url));
+    } else {
+      say(url);
+    }
+  }
+
+  const blockedReason = selected && !selected.wornSlot
+    ? 'This item has no paperdoll slot — it always stows in the pack.'
+    : null;
+
+  return (
+    <React.Fragment>
+      <Header forks={forks} onFork={onFork} onShare={onShare} />
+
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 space-y-5">
+        <ProfileBanner totalValue={totalValue} slotCount={items.length} wornCount={worn.length} />
+        <Encumbrance w={w} />
+
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(340px,.85fr)] gap-5 items-start">
+          <Paperdoll wornBySlot={wornBySlot} selectedId={selectedId} onSelect={setSelectedId} wornOz={w.wornOz} />
+
+          <BagGrid
+            bag={bag}
+            filter={filter}
+            setFilter={setFilter}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onAutoSort={onAutoSort}
+            baseOz={w.baseOz}
+            consumableOz={w.consumableOz}
+          />
+
+          <div className="xl:sticky xl:top-[88px]">
+            <Inspector
+              item={selected}
+              onOverride={onOverride}
+              onResetOverride={onResetOverride}
+              onNote={onNote}
+              onToggleEquip={onToggleEquip}
+              blockedReason={blockedReason}
+            />
+          </div>
+        </div>
+
+        <footer className="pt-2 pb-8 text-center">
+          <p className="font-mono text-[10px] text-dim leading-relaxed">
+            ╚oadouts prototype · every weight is live — override one in the User layer and watch the encumbrance bar move.
+          </p>
+        </footer>
+      </main>
+
+      <Toast toast={toast} />
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
