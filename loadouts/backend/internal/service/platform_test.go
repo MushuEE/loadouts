@@ -17,6 +17,7 @@ type harness struct {
 	templates *TemplateService
 	loadouts  *LoadoutService
 	inventory *InventoryService
+	plugins   *PluginService
 }
 
 func newHarness(t *testing.T) *harness {
@@ -37,6 +38,7 @@ func newHarness(t *testing.T) *harness {
 		templates: templates,
 		loadouts:  loadouts,
 		inventory: inventory,
+		plugins:   NewPluginService(store, community, loadouts, inventory, "https://sandbox.test"),
 	}
 }
 
