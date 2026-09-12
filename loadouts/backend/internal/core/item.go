@@ -31,11 +31,24 @@ type Item struct {
 	ImageURL string `json:"image_url" db:"image_url"`
 	// ProvidedSlots lets an item act as a container (a pack provides pockets, a pot
 	// provides an interior), which is what powers the telescoping loadout view.
-	ProvidedSlots SlotList  `json:"provided_slots" db:"provided_slots"`
-	BaseMetadata  Metadata  `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
+	ProvidedSlots SlotList `json:"provided_slots" db:"provided_slots"`
+	BaseMetadata  Metadata `json:"base_metadata" db:"base_metadata"` // Namespaced by SchemaID
+	// Origin records how the item entered the catalog (OriginCurated / OriginImport).
+	Origin string `json:"origin" db:"origin"`
+	// Verified marks an item a human has vouched for. Retailer imports land unverified so
+	// scraped data can be trusted less than hand-curated data without being hidden.
+	Verified bool `json:"verified" db:"verified"`
+	// ImportedBy is the profile that pulled the item in, empty for platform-curated items.
+	ImportedBy string    `json:"imported_by" db:"imported_by"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
 }
+
+// Item origins.
+const (
+	OriginCurated = "curated"
+	OriginImport  = "import"
+)
 
 // UserMetadata represents user-specific overrides or extensions of an item.
 //
@@ -85,11 +98,16 @@ type Supplier struct {
 
 // ItemSource links an item to a supplier.
 type ItemSource struct {
-	ID          string    `json:"id" db:"id"`
-	ItemID      string    `json:"item_id" db:"item_id"`
-	SupplierID  string    `json:"supplier_id" db:"supplier_id"`
-	ProductID   string    `json:"product_id" db:"product_id"`
+	ID         string `json:"id" db:"id"`
+	ItemID     string `json:"item_id" db:"item_id"`
+	SupplierID string `json:"supplier_id" db:"supplier_id"`
+	ProductID  string `json:"product_id" db:"product_id"`
+	// SourceURL is the canonical product URL the import came from. It is kept alongside
+	// ProductID so an item can always be traced back to its origin page even if the
+	// supplier's affiliate template changes.
+	SourceURL   string    `json:"source_url" db:"source_url"`
 	Price       float64   `json:"price" db:"price"`
+	Currency    string    `json:"currency" db:"currency"`
 	LastUpdated time.Time `json:"last_updated" db:"last_updated"`
 }
 

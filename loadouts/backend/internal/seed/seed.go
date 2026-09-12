@@ -45,6 +45,10 @@ func (i item) toCore() core.Item {
 		Name:          i.Name,
 		Category:      i.Category,
 		ProvidedSlots: slots,
+		// The demo catalogue is hand-curated, so it is verified by definition. Only
+		// retailer imports land unverified.
+		Origin:   core.OriginCurated,
+		Verified: true,
 		BaseMetadata: core.Metadata{
 			core.CoreNamespace: map[string]interface{}{
 				core.KeyWeightG:    i.WeightG,

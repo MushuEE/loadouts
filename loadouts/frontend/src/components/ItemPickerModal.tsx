@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { PackagePlus, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Item, SlotDefinition } from '../api/types';
 import { useAsync } from '../lib/useAsync';
 import { CORE, categoryIcon, formatCost, formatGrams } from '../lib/display';
 import { ErrorNote, Spinner } from './ui';
+import { ImportItemModal } from './ImportItemModal';
 
 /**
  * Item picker constrained by the slot's accepted categories, so the template's structure
@@ -20,6 +21,7 @@ export function ItemPickerModal({
   onSelect: (itemId: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [importing, setImporting] = useState(false);
   const items = useAsync<Item[]>(() => api.listItems(), []);
 
   const accepted = slot.accepted_categories ?? [];
@@ -31,6 +33,18 @@ export function ItemPickerModal({
       .filter((item) => universal || accepted.includes(item.category))
       .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()));
   }, [items.data, accepted, universal, query]);
+
+  // Importing mid-build is the common case: you're filling a slot and realize the piece
+  // of gear isn't in the catalog yet. Sending the user off to the Garage would lose the
+  // slot context, so the picker hands the imported item straight back to the slot.
+  if (importing) {
+    return (
+      <ImportItemModal
+        onClose={() => setImporting(false)}
+        onImported={(item) => onSelect(item.id)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -63,8 +77,15 @@ export function ItemPickerModal({
           {items.loading && <Spinner />}
           {items.error && <div className="p-2"><ErrorNote message={items.error} /></div>}
           {!items.loading && visible.length === 0 && (
-            <div className="py-12 text-center text-stone-600 text-sm">
-              No compatible gear. Add it in the Garage first.
+            <div className="py-12 text-center">
+              <p className="text-stone-600 text-sm">No compatible gear in the catalog.</p>
+              <button
+                onClick={() => setImporting(true)}
+                className="mt-3 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg inline-flex items-center gap-2"
+              >
+                <PackagePlus className="w-4 h-4" />
+                Import from a store
+              </button>
             </div>
           )}
           {visible.map((item) => (
@@ -86,6 +107,16 @@ export function ItemPickerModal({
               </span>
             </button>
           ))}
+        </div>
+
+        <div className="p-3 border-t border-stone-800">
+          <button
+            onClick={() => setImporting(true)}
+            className="w-full py-2 text-xs text-stone-400 hover:text-orange-400 flex items-center justify-center gap-2"
+          >
+            <PackagePlus className="w-3.5 h-3.5" />
+            Can't find it? Import from a store link
+          </button>
         </div>
       </div>
     </div>

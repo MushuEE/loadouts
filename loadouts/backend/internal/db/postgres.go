@@ -43,8 +43,8 @@ func (s *PostgresStore) ListSchemas(ctx context.Context) ([]core.SchemaDefinitio
 }
 
 func (s *PostgresStore) CreateItem(ctx context.Context, item core.Item) error {
-	query := `INSERT INTO items (id, name, category, image_url, provided_slots, base_metadata)
-	          VALUES (:id, :name, :category, :image_url, :provided_slots, :base_metadata)`
+	query := `INSERT INTO items (id, name, category, image_url, provided_slots, base_metadata, origin, verified, imported_by)
+	          VALUES (:id, :name, :category, :image_url, :provided_slots, :base_metadata, :origin, :verified, :imported_by)`
 	_, err := s.db.NamedExecContext(ctx, query, item)
 	return err
 }
@@ -103,6 +103,42 @@ func (s *PostgresStore) GetSupplier(ctx context.Context, id string) (core.Suppli
 	query := `SELECT * FROM suppliers WHERE id = $1`
 	err := s.db.GetContext(ctx, &supplier, query, id)
 	return supplier, err
+}
+
+// UpsertItemSource relies on the UNIQUE(supplier_id, product_id) constraint added in
+// migration 0003, which is what makes re-importing the same product URL a price refresh
+// rather than a duplicate row.
+func (s *PostgresStore) UpsertItemSource(ctx context.Context, source core.ItemSource) error {
+	if source.ID == "" {
+		source.ID = core.NewID("src")
+	}
+	query := `INSERT INTO item_sources (id, item_id, supplier_id, product_id, source_url, price, currency, last_updated)
+	          VALUES (:id, :item_id, :supplier_id, :product_id, :source_url, :price, :currency, NOW())
+	          ON CONFLICT (supplier_id, product_id) DO UPDATE SET
+	              item_id = EXCLUDED.item_id,
+	              source_url = EXCLUDED.source_url,
+	              price = EXCLUDED.price,
+	              currency = EXCLUDED.currency,
+	              last_updated = NOW()`
+	_, err := s.db.NamedExecContext(ctx, query, source)
+	return err
+}
+
+func (s *PostgresStore) UpsertSupplier(ctx context.Context, supplier core.Supplier) error {
+	query := `INSERT INTO suppliers (id, name, base_url, affiliate_template)
+	          VALUES (:id, :name, :base_url, :affiliate_template)
+	          ON CONFLICT (id) DO UPDATE SET
+	              name = EXCLUDED.name,
+	              base_url = EXCLUDED.base_url,
+	              affiliate_template = EXCLUDED.affiliate_template`
+	_, err := s.db.NamedExecContext(ctx, query, supplier)
+	return err
+}
+
+func (s *PostgresStore) ListSuppliers(ctx context.Context) ([]core.Supplier, error) {
+	suppliers := []core.Supplier{}
+	err := s.db.SelectContext(ctx, &suppliers, `SELECT * FROM suppliers ORDER BY name`)
+	return suppliers, err
 }
 
 func (s *PostgresStore) GetItemBySource(ctx context.Context, supplierID, productID string) (string, error) {

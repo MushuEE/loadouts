@@ -116,7 +116,53 @@ GET    /api/v1/items                       POST /api/v1/items
 GET    /api/v1/items/{id}?community=&owner=
 GET/PUT /api/v1/items/{id}/layers/profile
 GET    /api/v1/schemas                     POST /api/v1/schemas
+
+GET    /api/v1/imports/suppliers           # retailers we have URL rules for
+POST   /api/v1/imports/preview             # inspect a product URL, writes nothing
+POST   /api/v1/imports/commit              # create the item from the confirmed draft
 ```
+
+---
+
+## Importing gear from a store
+
+Paste a product link from REI, Amazon, Backcountry, Patagonia, Garage Grown Gear — or any
+other store — and it becomes a catalog item.
+
+```
+URL ──▶ canonicalize ──▶ fetch ──▶ extract ──▶ Draft ──▶ [user edits] ──▶ commit
+        (supplier +      (SSRF-    (JSON-LD →   (name, weight,          (Item +
+         product ID)      guarded)  OG tags →    price, image,           ItemSource)
+                                    title)       category guess)
+```
+
+A few properties worth knowing:
+
+- **Canonicalization never touches the network.** `rei.com/product/894303/slug?utm_source=x`
+  resolves to `(rei, 894303)` by string parsing alone. That gives us dedupe and a correct
+  affiliate link even when the scrape fails.
+- **A blocked retailer is a degraded success, not an error.** Amazon returns 503/403 to
+  datacenter traffic. The import falls back to `status: "manual"` — we still know the ASIN
+  and the outbound link, the user just fills in name/weight/price themselves.
+- **Weights are normalized to grams** (`"2 lb 3 oz"` → 992.23g) because `core.weight_g` is
+  what the loadout stats engine runs on. If a weight can't be found the field is left
+  *blank*, never prefilled with 0, so a missing weight can't silently corrupt a loadout.
+- **Re-importing is idempotent.** The same product from a share link, a search result, and
+  an affiliate link all collapse to one catalog entry via `UNIQUE(supplier_id, product_id)`.
+- **Imports land in the global catalog flagged `origin=import, verified=false`**, so they
+  are immediately useful to everyone but still distinguishable from hand-curated entries.
+- **Unknown stores still work**, resolving to the generic `other` supplier whose affiliate
+  template is a passthrough to the original URL.
+
+Adding a retailer means appending one entry to the registry in
+[`internal/importer/url.go`](loadouts/backend/internal/importer/url.go); the extraction
+stage is generic across all of them.
+
+> [!NOTE]
+> Fetching a user-supplied URL server-side is a classic SSRF sink. The guard is applied at
+> dial time via `Dialer.Control`, which covers the original host, every redirect hop, and
+> DNS rebinding in one place, plus a hostname check in `Canonicalize` so the commit path
+> (which never fetches) is protected too.
 
 ---
 
@@ -130,11 +176,12 @@ GET    /api/v1/schemas                     POST /api/v1/schemas
 ## Tests
 
 ```bash
-cd loadouts/backend && go test ./...          # unit tests
-cd loadouts/backend && ./scripts/smoke_day0.sh # end-to-end against a running server
-cd loadouts/frontend && npm run build          # type-check + bundle
+cd loadouts/backend && go test ./...            # unit tests
+cd loadouts/backend && ./scripts/smoke_day0.sh  # end-to-end against a running server
+cd loadouts/backend && ./scripts/smoke_import.sh # end-to-end import flow
+cd loadouts/frontend && npm run build            # type-check + bundle
 ```
 
-See [DAY0_MVP_PLAN.md](DAY0_MVP_PLAN.md) for the implementation plan, deferred work, and
+See [ITEM_IMPORT.md](ITEM_IMPORT.md) for the import design notes, [DAY0_MVP_PLAN.md](DAY0_MVP_PLAN.md) for the implementation plan, deferred work, and
 acceptance criteria, and [loadouts/backend/TESTING.md](loadouts/backend/TESTING.md) for
 manual curl flows.

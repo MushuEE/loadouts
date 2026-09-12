@@ -43,6 +43,8 @@ func main() {
 	communitySvc := service.NewCommunityService(store)
 	templateSvc := service.NewTemplateService(store, communitySvc)
 	loadoutSvc := service.NewLoadoutService(store, invSvc, templateSvc, communitySvc)
+	// A nil fetcher gives the default SSRF-guarded HTTP fetcher; tests inject a fake.
+	importSvc := service.NewImportService(store, invSvc, nil)
 
 	// 3. Seed demo data. Defaults on for the in-memory store (nothing to lose), opt-in
 	//    for Postgres via SEED=1.
@@ -68,6 +70,7 @@ func main() {
 	communityHandler := handlers.NewCommunityHandler(communitySvc, templateSvc, loadoutSvc)
 	templateHandler := handlers.NewTemplateHandler(templateSvc)
 	loadoutHandler := handlers.NewLoadoutHandler(loadoutSvc)
+	importHandler := handlers.NewImportHandler(importSvc)
 
 	r := chi.NewRouter()
 
@@ -88,6 +91,7 @@ func main() {
 	// Routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Mount("/items", itemHandler.Routes())
+		r.Mount("/imports", importHandler.Routes())
 		r.Mount("/schemas", schemaHandler.Routes())
 		r.Mount("/users", identityHandler.UserRoutes())
 		r.Mount("/profiles", identityHandler.ProfileRoutes())

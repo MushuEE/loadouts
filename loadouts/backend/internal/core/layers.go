@@ -84,6 +84,10 @@ type ResolvedItem struct {
 	Provenance    map[string]string      `json:"provenance"` // "namespace.key" -> layer name
 	AppliedLayers []string               `json:"applied_layers"`
 	Sources       []ResolvedSource       `json:"sources,omitempty"`
+	// Origin and Verified are carried through so clients can badge retailer imports that
+	// nobody has vouched for yet.
+	Origin   string `json:"origin,omitempty"`
+	Verified bool   `json:"verified"`
 }
 
 // WeightG returns the resolved core weight in grams.
@@ -143,6 +147,8 @@ func ResolveLayers(item Item, in LayerInput, ctx LayerContext) ResolvedItem {
 		Metadata:      map[string]interface{}{},
 		Provenance:    map[string]string{},
 		AppliedLayers: []string{LayerGlobal},
+		Origin:        item.Origin,
+		Verified:      item.Verified,
 	}
 
 	applyLayer(&resolved, item.BaseMetadata, LayerGlobal)
