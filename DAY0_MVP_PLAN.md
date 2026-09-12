@@ -210,3 +210,41 @@ Resolution order for an item, evaluated in a **view context** (`viewer profile`,
    see computed weight/base-weight/cost, and publish it publicly.
 7. Another profile can discover that loadout, view it, and fork it into their own account.
 8. `go test ./...` and `npm run build` both pass.
+
+---
+
+## 6. Delivery status
+
+All eight acceptance criteria are met. Verified by `go test ./...`, `npm run build`, and
+`backend/scripts/smoke_day0.sh` (end-to-end against a running server).
+
+| Phase | Status |
+| --- | --- |
+| 1. Domain types | Done — `identity.go`, `community.go`, `template.go`, `loadout.go`, `layers.go`, `ids.go`, `errors.go` |
+| 2. Storage | Done — extended `Store`, full `MemoryStore` + `PostgresStore`, migration `0004` |
+| 3. Services | Done — identity, community, template, loadout, layered item resolution |
+| 4. HTTP API | Done — dev auth, CORS, `/healthz`, JSON error envelope, all routes |
+| 5. Seed | Done — `internal/seed`, auto-runs on the in-memory store |
+| 6. Tests | Done — `core/layers_test.go`, `service/platform_test.go`, `service/loadout_test.go` |
+| 7. Frontend | Done — API client, session/profile switcher, Home, Discover, Communities, Garage, editor |
+| 8. Docs | Done — README, TESTING, implementation notes |
+
+### Deviations from the plan
+
+> [!NOTE]
+> **Offline fallback → explicit offline screen.** The plan called for falling back to the old
+> mock dataset when the API is unreachable. Keeping a second, silently-diverging source of
+> truth is a trap, so the app now shows exactly which command to run instead. The mock
+> database and the unused earlier prototype under `src/{features,hooks,data,types}` were
+> deleted.
+
+> [!NOTE]
+> **API smoke test → shell script instead of `httptest`.** `scripts/smoke_day0.sh` exercises
+> the real server over HTTP and doubles as living documentation of the flows, which was worth
+> more at Day 0 than an in-process handler test. The service layer beneath it is unit-tested.
+
+> [!IMPORTANT]
+> The frontend had **no `tsconfig.json`**, so `npm run build` was silently skipping both the
+> type check and the Vite build (`tsc` printed its help text and the `&&` short-circuited).
+> Added `tsconfig.json` / `tsconfig.node.json`; the build now genuinely type-checks.
+
