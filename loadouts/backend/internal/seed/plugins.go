@@ -51,7 +51,7 @@ func seedPlugins(ctx context.Context, s Services, authorID, communityID string) 
 		return fmt.Errorf("seed ul-score plugin: %w", err)
 	}
 
-	route, err := s.Plugins.Create(ctx, authorID, service.PublishRequest{
+	if _, err := s.Plugins.Create(ctx, authorID, service.PublishRequest{
 		Slug:        "trip-route",
 		Name:        "Trip Route Map",
 		Description: "Pin the route this loadout was packed for. Saves the track on the loadout itself.",
@@ -60,8 +60,7 @@ func seedPlugins(ctx context.Context, s Services, authorID, communityID string) 
 		IsPublic:    true,
 		Changelog:   "Initial release.",
 		Manifest:    tripRouteManifest(),
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("seed trip-route plugin: %w", err)
 	}
 
@@ -88,7 +87,6 @@ func seedPlugins(ctx context.Context, s Services, authorID, communityID string) 
 		}
 	}
 
-	_ = route // published to the directory, installed by hand.
 	return nil
 }
 
