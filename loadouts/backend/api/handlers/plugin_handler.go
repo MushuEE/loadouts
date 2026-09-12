@@ -165,11 +165,14 @@ func (h *PluginHandler) Install(w http.ResponseWriter, r *http.Request) {
 func (h *PluginHandler) ListInstalls(w http.ResponseWriter, r *http.Request) {
 	scopeType := r.URL.Query().Get("scope_type")
 	scopeID := r.URL.Query().Get("scope_id")
-	if scopeType == core.ScopeProfile && scopeID == "" {
+	if scopeType == "" {
 		// The common case: "what have I installed?"
+		scopeType = core.ScopeProfile
+	}
+	if scopeType == core.ScopeProfile && scopeID == "" {
 		scopeID = auth.ProfileID(r.Context())
 	}
-	views, err := h.svc.ListInstalls(r.Context(), scopeType, scopeID)
+	views, err := h.svc.ListInstalls(r.Context(), auth.ProfileID(r.Context()), scopeType, scopeID)
 	if err != nil {
 		writeError(w, err)
 		return

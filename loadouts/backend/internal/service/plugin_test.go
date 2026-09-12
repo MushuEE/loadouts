@@ -232,7 +232,7 @@ func TestPlugin_VersionsAreImmutableAndInstallsPin(t *testing.T) {
 	}
 
 	// The pinned install is untouched: a publish cannot change approved behaviour.
-	views, err := h.plugins.ListInstalls(ctx, core.ScopeProfile, user.ID)
+	views, err := h.plugins.ListInstalls(ctx, user.ID, core.ScopeProfile, user.ID)
 	if err != nil {
 		t.Fatalf("list installs: %v", err)
 	}
@@ -261,6 +261,60 @@ func TestPlugin_VersionsAreImmutableAndInstallsPin(t *testing.T) {
 	}
 	if v1.Version.Manifest.Capabilities.Storage {
 		t.Error("v1 manifest was mutated by publishing v2")
+	}
+}
+
+// An install list is scoped and authorized. This exists because the first cut of the
+// endpoint passed the query parameters straight through to the store, so omitting them
+// returned every install on the platform to an anonymous caller.
+func TestPlugin_InstallListingIsScopedAndAuthorized(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	author := h.profile(t, "author")
+	user := h.profile(t, "user")
+	nosy := h.profile(t, "nosy")
+
+	published := h.publish(t, author, "Weight Breakdown", weightBreakdownManifest())
+	if _, err := h.plugins.Install(ctx, user.ID, InstallRequest{
+		PluginID:    published.Plugin.ID,
+		ScopeType:   core.ScopeProfile,
+		ScopeID:     user.ID,
+		GrantedCaps: published.Version.Manifest.Capabilities.List(),
+	}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	cases := []struct {
+		name              string
+		actor, sType, sID string
+		wantErr           error
+	}{
+		{"owner sees their own", user.ID, core.ScopeProfile, user.ID, nil},
+		{"another profile may not look", nosy.ID, core.ScopeProfile, user.ID, core.ErrForbidden},
+		{"anonymous may not look", "", core.ScopeProfile, user.ID, core.ErrForbidden},
+		{"a scope is required", user.ID, core.ScopeProfile, "", core.ErrInvalid},
+		{"an unscoped query is rejected", user.ID, "", "", core.ErrInvalid},
+		{"an unknown scope is rejected", user.ID, "everything", "x", core.ErrInvalid},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := h.plugins.ListInstalls(ctx, tc.actor, tc.sType, tc.sID)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				if len(got) != 0 {
+					t.Errorf("a rejected query still returned %d installs", len(got))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d installs, want 1", len(got))
+			}
+		})
 	}
 }
 
@@ -463,7 +517,7 @@ func TestPlugin_ReinstallUpgradesInPlace(t *testing.T) {
 	if second.Install.Version != 2 {
 		t.Errorf("reinstall pinned v%d, want v2", second.Install.Version)
 	}
-	installs, _ := h.plugins.ListInstalls(ctx, core.ScopeProfile, user.ID)
+	installs, _ := h.plugins.ListInstalls(ctx, user.ID, core.ScopeProfile, user.ID)
 	if len(installs) != 1 {
 		t.Errorf("got %d installs, want the reinstall to have replaced the first", len(installs))
 	}
@@ -538,7 +592,7 @@ func TestPlugin_UninstallAndDisable(t *testing.T) {
 	if err := h.plugins.Uninstall(ctx, user.ID, view.Install.ID); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	installs, _ := h.plugins.ListInstalls(ctx, core.ScopeProfile, user.ID)
+	installs, _ := h.plugins.ListInstalls(ctx, user.ID, core.ScopeProfile, user.ID)
 	if len(installs) != 0 {
 		t.Errorf("got %d installs after uninstalling, want 0", len(installs))
 	}

@@ -310,21 +310,35 @@ func TestEvalAggregateSkipsMissingValues(t *testing.T) {
 	}
 }
 
-func TestEvalRejectsNestedAggregates(t *testing.T) {
-	e, err := ParseExpr("sum(sum(w))")
-	if err != nil {
-		t.Fatalf("ParseExpr failed: %v", err)
+// Nested aggregates are refused by the parser, not the evaluator, so that publishing a
+// plugin containing one fails rather than every later render of it.
+func TestParseRejectsNestedAggregates(t *testing.T) {
+	rejected := []string{
+		"sum(sum(w))",
+		"sum(w * avg(w))",
+		"max(min(w))",
+		"sum(if(w > 0, count(w), 0))",
 	}
-	if _, err := EvalExpr(e, EvalScope{Rows: aggregateRows()}); err == nil {
-		t.Fatal("nested aggregate evaluated, want an error")
+	for _, src := range rejected {
+		t.Run(src, func(t *testing.T) {
+			if _, err := ParseExpr(src); err == nil {
+				t.Fatalf("ParseExpr(%q) succeeded, want a nested-aggregate error", src)
+			}
+		})
 	}
 
-	e, err = ParseExpr("sum(w * avg(w))")
-	if err != nil {
-		t.Fatalf("ParseExpr failed: %v", err)
+	// An aggregate beside another aggregate is fine; only containment is meaningless.
+	accepted := []string{
+		"sum(w) / count(w)",
+		"sum(w) - min(w)",
+		"if(count(w) > 0, sum(w), 0)",
 	}
-	if _, err := EvalExpr(e, EvalScope{Rows: aggregateRows()}); err == nil {
-		t.Fatal("aggregate nested inside arithmetic evaluated, want an error")
+	for _, src := range accepted {
+		t.Run(src, func(t *testing.T) {
+			if _, err := ParseExpr(src); err != nil {
+				t.Fatalf("ParseExpr(%q) failed: %v", src, err)
+			}
+		})
 	}
 }
 

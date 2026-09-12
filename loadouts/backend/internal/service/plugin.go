@@ -380,7 +380,31 @@ func (s *PluginService) UpdateSettings(ctx context.Context, actorProfileID, inst
 }
 
 // ListInstalls returns everything installed in a scope.
-func (s *PluginService) ListInstalls(ctx context.Context, scopeType, scopeID string) ([]InstallView, error) {
+//
+// A scope is mandatory. Without one the store would happily return every install on the
+// platform, so the check is here rather than in the handler: the store is a dumb query
+// layer and no future caller should be able to opt out of this.
+//
+// Who may look differs by scope, and follows what rendering already discloses. Community
+// installs shape what every visitor to that community sees, so listing them tells no-one
+// anything new. A profile's installs are only ever rendered for that profile, so they stay
+// private to it.
+func (s *PluginService) ListInstalls(ctx context.Context, actorProfileID, scopeType, scopeID string) ([]InstallView, error) {
+	if scopeID == "" {
+		return nil, fmt.Errorf("%w: a scope_id is required", core.ErrInvalid)
+	}
+	switch scopeType {
+	case core.ScopeProfile:
+		if actorProfileID == "" || actorProfileID != scopeID {
+			return nil, fmt.Errorf("%w: you can only list your own installs", core.ErrForbidden)
+		}
+	case core.ScopeCommunity:
+		// Public, as above.
+	default:
+		return nil, fmt.Errorf("%w: scope_type must be %q or %q, got %q",
+			core.ErrInvalid, core.ScopeProfile, core.ScopeCommunity, scopeType)
+	}
+
 	installs, err := s.store.ListPluginInstalls(ctx, scopeType, scopeID)
 	if err != nil {
 		return nil, err

@@ -62,6 +62,7 @@ func main() {
 			Templates: templateSvc,
 			Loadouts:  loadoutSvc,
 			Inventory: invSvc,
+			Plugins:   pluginSvc,
 		}); err != nil {
 			log.Printf("Warning: seeding failed: %v", err)
 		} else {

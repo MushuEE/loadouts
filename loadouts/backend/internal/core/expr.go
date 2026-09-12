@@ -228,7 +228,42 @@ func ParseExpr(src string) (Expr, error) {
 	if p.peek().kind != tokEOF {
 		return nil, fmt.Errorf("unexpected %q at position %d", p.peek().text, p.peek().pos)
 	}
+
+	// Nested aggregates are rejected here rather than in the evaluator so that an author
+	// finds out when they publish, not when someone opens a loadout. sum(sum(x)) has no
+	// meaning anyway: the inner call already collapsed the rows the outer one wants.
+	if err := rejectNestedAggregates(e); err != nil {
+		return nil, err
+	}
 	return e, nil
+}
+
+// rejectNestedAggregates walks the tree looking for an aggregate inside an aggregate.
+func rejectNestedAggregates(e Expr) error {
+	call, ok := e.(exprCall)
+	if ok && aggregateFunctions[call.name] {
+		for _, a := range call.args {
+			if containsAggregate(a) {
+				return fmt.Errorf("%s() cannot contain another aggregate", call.name)
+			}
+		}
+	}
+	switch n := e.(type) {
+	case exprCall:
+		for _, a := range n.args {
+			if err := rejectNestedAggregates(a); err != nil {
+				return err
+			}
+		}
+	case exprBinary:
+		if err := rejectNestedAggregates(n.l); err != nil {
+			return err
+		}
+		return rejectNestedAggregates(n.r)
+	case exprUnary:
+		return rejectNestedAggregates(n.x)
+	}
+	return nil
 }
 
 func (p *parser) peek() token { return p.tokens[p.pos] }

@@ -22,6 +22,8 @@ type Services struct {
 	Templates *service.TemplateService
 	Loadouts  *service.LoadoutService
 	Inventory *service.InventoryService
+	// Plugins is optional: leave it nil to seed everything except the demo plugins.
+	Plugins *service.PluginService
 }
 
 // item is a compact description of a seed item; it expands into the core metadata namespace.
@@ -313,6 +315,11 @@ func seedLoadouts(ctx context.Context, s Services, gearhead, fitcheck, sponsor c
 		return fmt.Errorf("seed fit loadout: %w", err)
 	}
 	if _, err := s.Loadouts.Publish(ctx, fitcheck.ID, fit.Loadout.ID, core.VisibilityPublic, nyc.ID); err != nil {
+		return err
+	}
+
+	// --- Plugins, last: they render over everything above. ---
+	if err := seedPlugins(ctx, s, gearhead.ID, ul.ID); err != nil {
 		return err
 	}
 
