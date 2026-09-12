@@ -7,6 +7,19 @@ committed to a milestone.
 
 ---
 
+## Recursive templates — Phase 3 (in flight, not deferred)
+
+Tracked in [#13](https://github.com/MushuEE/loadouts/issues/13): service-layer
+attach/detach/select, the recursive `Detail` tree walk, and the stats rollup, with the
+`Fork` question that still needs a decision. Phases 1–2 (core types, reference graph,
+storage) are merged; [RECURSIVE_TEMPLATES_PLAN.md](RECURSIVE_TEMPLATES_PLAN.md) has the
+full eight-phase breakdown.
+
+Listed here for discoverability only — unlike everything below it, this is next up rather
+than parked.
+
+---
+
 ## Purchase from a loadout (affiliate codes)
 
 **Status:** designed far enough to know the shape, not started.
