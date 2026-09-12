@@ -29,6 +29,7 @@ type MemoryStore struct {
 	tmplVersions map[string]core.TemplateVersion // "templateID:version"
 	loadouts     map[string]core.Loadout
 	entries      map[string][]core.LoadoutEntry // loadoutID -> entries
+	favorites    map[string]core.Favorite       // "scopeType:scopeID:loadoutID"
 	plugins      map[string]core.Plugin
 	pluginVers   map[string]core.PluginVersion // "pluginID:version"
 	installs     map[string]core.PluginInstall
@@ -54,6 +55,7 @@ func NewMemoryStore() *MemoryStore {
 		tmplVersions: make(map[string]core.TemplateVersion),
 		loadouts:     make(map[string]core.Loadout),
 		entries:      make(map[string][]core.LoadoutEntry),
+		favorites:    make(map[string]core.Favorite),
 		plugins:      make(map[string]core.Plugin),
 		pluginVers:   make(map[string]core.PluginVersion),
 		installs:     make(map[string]core.PluginInstall),
@@ -648,5 +650,70 @@ func (s *MemoryStore) ListLoadoutEntries(ctx context.Context, loadoutID string) 
 	out := make([]core.LoadoutEntry, len(entries))
 	copy(out, entries)
 	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out, nil
+}
+
+// --- Favorites ---
+
+func favoriteKey(scopeType core.FavoriteScope, scopeID, loadoutID string) string {
+	return string(scopeType) + ":" + scopeID + ":" + loadoutID
+}
+
+func (s *MemoryStore) UpsertFavorite(ctx context.Context, f core.Favorite) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := favoriteKey(f.ScopeType, f.ScopeID, f.LoadoutID)
+	// Re-confirming keeps the original CreatedAt: the endorsement dates from when it was
+	// first given, even though ConfirmedAt moves.
+	if existing, ok := s.favorites[key]; ok {
+		f.ID = existing.ID
+		f.CreatedAt = existing.CreatedAt
+	}
+	s.favorites[key] = f
+	return nil
+}
+
+func (s *MemoryStore) DeleteFavorite(ctx context.Context, scopeType core.FavoriteScope, scopeID, loadoutID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.favorites, favoriteKey(scopeType, scopeID, loadoutID))
+	return nil
+}
+
+func (s *MemoryStore) GetFavorite(ctx context.Context, scopeType core.FavoriteScope, scopeID, loadoutID string) (*core.Favorite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	f, ok := s.favorites[favoriteKey(scopeType, scopeID, loadoutID)]
+	if !ok {
+		return nil, nil // Not favorited is a normal answer, not an error.
+	}
+	return &f, nil
+}
+
+func (s *MemoryStore) ListFavoritesForScope(ctx context.Context, scopeType core.FavoriteScope, scopeID string) ([]core.Favorite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []core.Favorite{}
+	for _, f := range s.favorites {
+		if f.ScopeType == scopeType && f.ScopeID == scopeID {
+			out = append(out, f)
+		}
+	}
+	// Map iteration order is random, so sort or the shelf reshuffles on every request.
+	// Newest endorsement first.
+	sort.Slice(out, func(i, j int) bool { return out[i].ConfirmedAt.After(out[j].ConfirmedAt) })
+	return out, nil
+}
+
+func (s *MemoryStore) ListFavoritesForLoadout(ctx context.Context, loadoutID string) ([]core.Favorite, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []core.Favorite{}
+	for _, f := range s.favorites {
+		if f.LoadoutID == loadoutID {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ConfirmedAt.After(out[j].ConfirmedAt) })
 	return out, nil
 }

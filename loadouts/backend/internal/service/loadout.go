@@ -362,38 +362,52 @@ func (s *LoadoutService) Discover(ctx context.Context, q core.DiscoverQuery, vie
 		if !l.IsVisibleTo(viewerProfileID) {
 			continue
 		}
-
-		entries, err := s.store.ListLoadoutEntries(ctx, l.ID)
+		summary, err := s.Summarize(ctx, l, viewerProfileID)
 		if err != nil {
 			continue
-		}
-		lctx := core.LayerContext{
-			ViewerProfileID: viewerProfileID,
-			OwnerProfileID:  l.OwnerProfileID,
-			CommunityID:     l.CommunityID,
-		}
-		itemIDs := make([]string, 0, len(entries))
-		for _, e := range entries {
-			itemIDs = append(itemIDs, e.ItemID)
-		}
-		resolved := s.items.ResolveItems(ctx, itemIDs, lctx)
-
-		summary := core.LoadoutSummary{
-			Loadout:     l,
-			CommunityID: l.CommunityID,
-			Stats:       computeStats(entries, resolved),
-			ItemPreview: previewNames(entries, resolved, 4),
-		}
-		if owner, err := s.store.GetProfile(ctx, l.OwnerProfileID); err == nil {
-			summary.OwnerHandle = owner.Handle
-			summary.OwnerName = owner.DisplayName
-		}
-		if tmpl, err := s.store.GetTemplate(ctx, l.TemplateID); err == nil {
-			summary.TemplateName = tmpl.Name
 		}
 		summaries = append(summaries, summary)
 	}
 	return summaries, nil
+}
+
+// Summarize builds the card-sized read model for one loadout: stats, item preview, owner
+// handle, template name. Extracted from Discover so the favorites shelf renders identical
+// cards to the feed rather than a second, subtly different summary.
+//
+// It does *not* check visibility. Callers decide whether the viewer should see this
+// loadout at all — Discover filters, while the favorites shelf wants to distinguish
+// "hidden from you" from "missing", and both need to do that before they get here.
+func (s *LoadoutService) Summarize(ctx context.Context, l core.Loadout, viewerProfileID string) (core.LoadoutSummary, error) {
+	entries, err := s.store.ListLoadoutEntries(ctx, l.ID)
+	if err != nil {
+		return core.LoadoutSummary{}, err
+	}
+	lctx := core.LayerContext{
+		ViewerProfileID: viewerProfileID,
+		OwnerProfileID:  l.OwnerProfileID,
+		CommunityID:     l.CommunityID,
+	}
+	itemIDs := make([]string, 0, len(entries))
+	for _, e := range entries {
+		itemIDs = append(itemIDs, e.ItemID)
+	}
+	resolved := s.items.ResolveItems(ctx, itemIDs, lctx)
+
+	summary := core.LoadoutSummary{
+		Loadout:     l,
+		CommunityID: l.CommunityID,
+		Stats:       computeStats(entries, resolved),
+		ItemPreview: previewNames(entries, resolved, 4),
+	}
+	if owner, err := s.store.GetProfile(ctx, l.OwnerProfileID); err == nil {
+		summary.OwnerHandle = owner.Handle
+		summary.OwnerName = owner.DisplayName
+	}
+	if tmpl, err := s.store.GetTemplate(ctx, l.TemplateID); err == nil {
+		summary.TemplateName = tmpl.Name
+	}
+	return summary, nil
 }
 
 func (s *LoadoutService) requireOwner(ctx context.Context, actorProfileID, loadoutID string) (core.Loadout, error) {

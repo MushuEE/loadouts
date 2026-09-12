@@ -74,6 +74,17 @@ type Store interface {
 	ReplaceLoadoutEntries(ctx context.Context, loadoutID string, entries []core.LoadoutEntry) error
 	ListLoadoutEntries(ctx context.Context, loadoutID string) ([]core.LoadoutEntry, error)
 
+	// Favorites
+	//
+	// A favorite is keyed by (scope, loadout) rather than by its own ID everywhere,
+	// because "has this community endorsed this loadout?" is the question every caller
+	// actually asks. The ID exists for the row's own sake.
+	UpsertFavorite(ctx context.Context, favorite core.Favorite) error
+	DeleteFavorite(ctx context.Context, scopeType core.FavoriteScope, scopeID, loadoutID string) error
+	GetFavorite(ctx context.Context, scopeType core.FavoriteScope, scopeID, loadoutID string) (*core.Favorite, error)
+	ListFavoritesForScope(ctx context.Context, scopeType core.FavoriteScope, scopeID string) ([]core.Favorite, error)
+	ListFavoritesForLoadout(ctx context.Context, loadoutID string) ([]core.Favorite, error)
+
 	// Plugins
 	CreatePlugin(ctx context.Context, plugin core.Plugin) error
 	UpdatePlugin(ctx context.Context, plugin core.Plugin) error
