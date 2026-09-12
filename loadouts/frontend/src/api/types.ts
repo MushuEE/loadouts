@@ -418,3 +418,37 @@ export interface PluginDatum {
   updated_by: string;
   updated_at: string;
 }
+
+// --- Favorites ---
+
+export type FavoriteScope = 'profile' | 'community';
+
+/**
+ * A community endorsing a loadout it does not own, or a profile bookmarking one.
+ *
+ * The endorsement never confers control: the loadout stays entirely under its owner,
+ * which is why a member wanting to use a community's favorite kit forks it rather than
+ * editing it in place.
+ */
+export interface Favorite {
+  id: string;
+  scope_type: FavoriteScope;
+  scope_id: string;
+  loadout_id: string;
+  note: string;
+  /** Digest of the loadout's substance when this was last confirmed. */
+  fingerprint: string;
+  actor_profile_id: string;
+  created_at: string;
+  confirmed_at: string;
+}
+
+export interface FavoriteView extends Favorite {
+  /** False when the loadout was deleted or its owner made it private. */
+  available: boolean;
+  /** The loadout's contents or name changed since this was confirmed. */
+  stale: boolean;
+  /** Community name or profile handle behind scope_id, resolved server-side. */
+  scope_name: string;
+  loadout?: LoadoutSummary;
+}

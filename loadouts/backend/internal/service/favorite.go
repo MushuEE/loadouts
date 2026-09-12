@@ -36,8 +36,12 @@ type FavoriteView struct {
 	Available bool `json:"available"`
 	// Stale means the loadout's substance changed since this endorsement was confirmed.
 	// It is the signal that a mod should look again and re-confirm.
-	Stale   bool                 `json:"stale"`
-	Loadout *core.LoadoutSummary `json:"loadout,omitempty"`
+	Stale bool `json:"stale"`
+	// ScopeName is the community name or profile handle behind ScopeID. Resolved here
+	// because "endorsed by UL Backpacking" is the entire value of an endorsement, and
+	// making the client fetch a name per row to say it would be absurd.
+	ScopeName string               `json:"scope_name"`
+	Loadout   *core.LoadoutSummary `json:"loadout,omitempty"`
 }
 
 // maxNoteLength keeps an endorsement note to a sentence or two. It is a label, not a post.
@@ -139,7 +143,8 @@ func (s *FavoriteService) ListForScope(ctx context.Context, viewerProfileID stri
 	for _, f := range favorites {
 		loadout, err := s.store.GetLoadout(ctx, f.LoadoutID)
 		if err != nil {
-			views = append(views, FavoriteView{Favorite: f}) // Deleted: Available stays false.
+			// Deleted: Available stays false, but the endorsement still names its scope.
+			views = append(views, FavoriteView{Favorite: f, ScopeName: s.scopeName(ctx, f.ScopeType, f.ScopeID)})
 			continue
 		}
 		views = append(views, s.view(ctx, f, loadout, viewerProfileID))
@@ -189,15 +194,15 @@ func (s *FavoriteService) Get(ctx context.Context, viewerProfileID string, scope
 	}
 	loadout, err := s.store.GetLoadout(ctx, f.LoadoutID)
 	if err != nil {
-		return &FavoriteView{Favorite: *f}, nil
+		return &FavoriteView{Favorite: *f, ScopeName: s.scopeName(ctx, f.ScopeType, f.ScopeID)}, nil
 	}
 	view := s.view(ctx, *f, loadout, viewerProfileID)
 	return &view, nil
 }
 
-// view decorates a stored favorite with availability and staleness.
+// view decorates a stored favorite with availability, staleness, and the scope's name.
 func (s *FavoriteService) view(ctx context.Context, f core.Favorite, loadout core.Loadout, viewerProfileID string) FavoriteView {
-	out := FavoriteView{Favorite: f}
+	out := FavoriteView{Favorite: f, ScopeName: s.scopeName(ctx, f.ScopeType, f.ScopeID)}
 	if !loadout.IsVisibleTo(viewerProfileID) {
 		// The owner pulled it private after it was endorsed. The endorsement remains, and
 		// remains visibly broken, rather than disappearing without explanation.
@@ -218,6 +223,22 @@ func (s *FavoriteService) view(ctx context.Context, f core.Favorite, loadout cor
 		out.Loadout = &summary
 	}
 	return out
+}
+
+// scopeName resolves a scope ID to something a human recognises. A missing entity yields
+// an empty string rather than an error: a broken endorsement should still render.
+func (s *FavoriteService) scopeName(ctx context.Context, scopeType core.FavoriteScope, scopeID string) string {
+	switch scopeType {
+	case core.FavoriteCommunity:
+		if c, err := s.store.GetCommunity(ctx, scopeID); err == nil {
+			return c.Name
+		}
+	case core.FavoriteProfile:
+		if p, err := s.store.GetProfile(ctx, scopeID); err == nil {
+			return p.Handle
+		}
+	}
+	return ""
 }
 
 // requireScopeAuthority answers "may you speak for this scope?". A profile speaks only for

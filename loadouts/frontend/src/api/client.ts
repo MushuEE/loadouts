@@ -2,6 +2,8 @@ import type {
   Community,
   CommunityMember,
   CommunityView,
+  FavoriteScope,
+  FavoriteView,
   ImportCommitRequest,
   ImportPreview,
   ImportResult,
@@ -232,4 +234,23 @@ export const api = {
   }),
   deletePluginDatum: (pluginId: string, key: string, params: { scope_type: string; scope_id: string }) =>
     request<void>(`/plugins/${pluginId}/data/${encodeURIComponent(key)}${qs(params)}`, { method: 'DELETE' }),
+  // --- Favorites ---
+  //
+  // PUT is deliberate: favoriting twice is a re-confirmation of the same endorsement,
+  // not a second one. Omit the scope to bookmark to your own profile.
+  favoriteLoadout: (
+    loadoutId: string,
+    body: { scope_type?: FavoriteScope; scope_id?: string; note?: string } = {},
+  ) => request<FavoriteView>(`/loadouts/${loadoutId}/favorite`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }),
+  unfavoriteLoadout: (loadoutId: string, params: { scope_type?: FavoriteScope; scope_id?: string } = {}) =>
+    request<void>(`/loadouts/${loadoutId}/favorite${qs(params)}`, { method: 'DELETE' }),
+  /** Community endorsements of one loadout. Private bookmarks are never included. */
+  listLoadoutFavorites: (loadoutId: string) =>
+    request<FavoriteView[]>(`/loadouts/${loadoutId}/favorite`),
+  /** A shelf: a community's endorsements, or your own bookmarks. */
+  listFavorites: (params: { scope_type?: FavoriteScope; scope_id?: string } = {}) =>
+    request<FavoriteView[]>(`/favorites${qs(params)}`),
 };

@@ -6,6 +6,7 @@ import { useSession } from '../session/SessionContext';
 import { useAsync } from '../lib/useAsync';
 import { categoryIcon, formatCost, formatGrams, formatKg } from '../lib/display';
 import { Badge, ErrorNote, Spinner } from '../components/ui';
+import { FavoritePanel } from '../components/FavoritePanel';
 import { ItemPickerModal } from '../components/ItemPickerModal';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 
@@ -187,6 +188,10 @@ export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; on
             ))}
           </div>
         )}
+
+        {/* Endorsements sit with the stats because they are a judgement about this
+            loadout, not an action on it. */}
+        <FavoritePanel loadoutId={loadoutId} />
 
         {/* Sidebar plugins sit with the stats, since that is what they annotate. */}
         <div className="px-4 pb-4">
