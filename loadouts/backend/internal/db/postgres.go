@@ -43,8 +43,8 @@ func (s *PostgresStore) ListSchemas(ctx context.Context) ([]core.SchemaDefinitio
 }
 
 func (s *PostgresStore) CreateItem(ctx context.Context, item core.Item) error {
-	query := `INSERT INTO items (id, name, image_url, base_metadata)
-	          VALUES (:id, :name, :image_url, :base_metadata)`
+	query := `INSERT INTO items (id, name, category, image_url, provided_slots, base_metadata)
+	          VALUES (:id, :name, :category, :image_url, :provided_slots, :base_metadata)`
 	_, err := s.db.NamedExecContext(ctx, query, item)
 	return err
 }
@@ -57,33 +57,38 @@ func (s *PostgresStore) GetItem(ctx context.Context, id string) (core.Item, erro
 }
 
 func (s *PostgresStore) ListItems(ctx context.Context, searchTerm string) ([]core.Item, error) {
-	var items []core.Item
+	items := []core.Item{}
 	// Very basic search for now. In the future, this could use GIN index or ElasticSearch.
-	query := `SELECT * FROM items WHERE name ILIKE $1 OR id ILIKE $1`
+	query := `SELECT * FROM items WHERE name ILIKE $1 OR id ILIKE $1 OR category ILIKE $1 ORDER BY name`
 	err := s.db.SelectContext(ctx, &items, query, "%"+searchTerm+"%")
 	return items, err
 }
 
+// UpdateUserMetadata is the legacy compat shim: it writes the profile item layer, mapping
+// overrides -> public_metadata and open_data -> private_metadata.
 func (s *PostgresStore) UpdateUserMetadata(ctx context.Context, meta core.UserMetadata) error {
-	query := `INSERT INTO user_metadata (user_id, item_id, custom_image_url, overrides, open_data, updated_at)
-	          VALUES (:user_id, :item_id, :custom_image_url, :overrides, :open_data, CURRENT_TIMESTAMP)
-	          ON CONFLICT (user_id, item_id) DO UPDATE SET
-	          custom_image_url = EXCLUDED.custom_image_url,
-	          overrides = EXCLUDED.overrides,
-	          open_data = EXCLUDED.open_data,
-	          updated_at = CURRENT_TIMESTAMP`
-	_, err := s.db.NamedExecContext(ctx, query, meta)
-	return err
+	return s.UpsertProfileItemLayer(ctx, core.ProfileItemLayer{
+		ProfileID:       meta.UserID,
+		ItemID:          meta.ItemID,
+		CustomImageURL:  meta.CustomImageURL,
+		PublicMetadata:  meta.Overrides,
+		PrivateMetadata: meta.OpenData,
+	})
 }
 
 func (s *PostgresStore) GetUserMetadata(ctx context.Context, userID, itemID string) (*core.UserMetadata, error) {
-	var meta core.UserMetadata
-	query := `SELECT * FROM user_metadata WHERE user_id = $1 AND item_id = $2`
-	err := s.db.GetContext(ctx, &meta, query, userID, itemID)
+	layer, err := s.GetProfileItemLayer(ctx, userID, itemID)
 	if err != nil {
 		return nil, err
 	}
-	return &meta, nil
+	return &core.UserMetadata{
+		UserID:         layer.ProfileID,
+		ItemID:         layer.ItemID,
+		CustomImageURL: layer.CustomImageURL,
+		Overrides:      layer.PublicMetadata,
+		OpenData:       layer.PrivateMetadata,
+		UpdatedAt:      layer.UpdatedAt,
+	}, nil
 }
 
 func (s *PostgresStore) GetItemSources(ctx context.Context, itemID string) ([]core.ItemSource, error) {

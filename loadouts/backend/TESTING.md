@@ -1,55 +1,88 @@
 # Local Testing Guide
 
-This guide explains how to verify the Polyglot Inventory System locally.
+This guide explains how to verify the Loadouts backend locally.
 
 ## Prerequisites
 - **Go 1.25+**
-- **curl** (for API testing)
+- **curl** and **python3** (for the smoke script)
 - **git**
 
 ## 1. Unit Testing
-The core logic (Deep Merging, Schema Validation, and Bloom Filter) is covered by Go unit tests.
+
+Layer resolution, template versioning, loadout validation/stats/forking, and community
+role gating are covered by Go unit tests.
 
 ```bash
 cd loadouts/backend
-go test ./internal/core/...
+go test ./...
 ```
 
-## 2. API Integration Testing (End-to-End)
-We use a `seed.sh` script to verify the full lifecycle:
-1. Registering a Schema.
-2. Creating a Global Item.
-3. Applying User Overrides.
-4. Fetching the Merged Polyglot Result.
+## 2. End-to-End Smoke Test
 
-### Running with In-Memory Store (Fastest)
-The backend defaults to an in-memory store if no `DATABASE_URL` is provided.
+`scripts/smoke_day0.sh` walks the whole Day 0 object model against a running server:
+layer resolution, private-layer redaction, nested loadout entries, template versioning,
+forking, visibility, and community admin gating.
 
 ```bash
-# In one terminal, start the server
+# Terminal 1: the server auto-seeds the demo dataset when using the in-memory store
 cd loadouts/backend
-go run cmd/server/main.go
+go run ./cmd/server
 
-# In another terminal, run the seed script
+# Terminal 2
 cd loadouts/backend
-bash scripts/seed.sh
+./scripts/smoke_day0.sh
 ```
+
+`scripts/seed.sh` remains available and exercises the original schema-registry and
+item-override endpoints.
 
 ## 3. Manual API Exploration
-You can interact with the API directly using `curl`.
 
-### Check Schema
-```bash
-curl http://localhost:8080/api/v1/schemas/combat_stats
-```
+Every request acts as a profile via the `X-Profile-ID` header (an ID or a `@handle`).
 
-### Fetch Item with Overrides
-Ensure you pass the `X-User-ID` header to see the merged result:
 ```bash
-curl -H "X-User-ID: user_999" http://localhost:8080/api/v1/items/iron_sword
+API=http://localhost:8080/api/v1
+
+# Who exists?
+curl -s $API/profiles
+
+# Global view of an item: only the base layer applies.
+curl -s $API/items/tent-copper-spur-ul2
+
+# Through the UL community's lens, as the owning profile: all four layers apply, and the
+# response's provenance map says which layer produced each value.
+curl -s -H "X-Profile-ID: gearhead" \
+  "$API/items/tent-copper-spur-ul2?community=ul-backpacking"
+
+# Same item, viewed by a different profile: the private layer is gone.
+curl -s -H "X-Profile-ID: trailsponsor" \
+  "$API/items/tent-copper-spur-ul2?community=ul-backpacking&owner=<gearhead-profile-id>"
+
+# The public feed, and one loadout in full (nested entries + stats + validation).
+curl -s $API/discover
+curl -s -H "X-Profile-ID: gearhead" $API/loadouts/<loadout-id>
+
+# Fork someone else's loadout into your own account.
+curl -s -X POST -H "X-Profile-ID: trailsponsor" $API/loadouts/<loadout-id>/fork
 ```
 
 ## 4. Key Behaviors to Verify
-- **Schema Validation**: Try adding metadata that violates the schema (e.g., a string for a number field). The API should return a `400` or `500` error with validation details.
-- **Bloom Filter**: The server logs will show `Populated Bloom Filter...` on startup. If you try to recreate an item ID, the Bloom filter will trigger a fast-path check.
-- **Deep Merge**: Verify that fields not overridden in the `UserMetadata` are still preserved from the `BaseMetadata`.
+
+- **Layer precedence**: `global → community → user public → user private`. A user's public
+  override beats the community layer, which beats the global item.
+- **Private redaction**: the `user_private` layer must never appear in a response where the
+  viewer is not the owning profile. `applied_layers` tells you which layers were used.
+- **Community scoping**: community metadata must not appear without `?community=`, and must
+  not appear for a *different* community.
+- **Template immutability**: publishing a new version bumps `latest_version` but leaves older
+  versions byte-identical. A loadout pinned to v1 keeps validating against v1.
+- **Publish gating**: a loadout with an unfilled *required* slot may be saved as a draft
+  (warning) but must fail to publish (error).
+- **Visibility**: a private loadout returns `403` for anyone but its owner, including
+  anonymous callers.
+- **Admin gating**: only community admins/owners can write a community item layer (`403`
+  otherwise), and the last owner cannot leave a community.
+- **Nesting**: entries with a `parent_entry_id` roll up into the parent container's subtree,
+  and their weight/cost still counts toward the loadout totals.
+- **Schema validation**: a public user layer whose namespace matches a registered schema must
+  conform to it; unregistered namespaces are allowed through.

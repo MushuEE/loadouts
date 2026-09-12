@@ -47,3 +47,38 @@ Build a flexible inventory metadata system that supports:
     - **Indexing**: `item_sources` table acts as a reverse-lookup (URL/Product ID -> Item) to prevent duplicate imports.
     - **Dynamic Pricing**: Cached prices with a TTL; updated via background refresh logic.
     - **Monetization**: Final purchase URLs are generated on-the-fly by injecting item-specific IDs into supplier-level affiliate templates.
+
+## Day 0 MVP Decisions (see DAY0_MVP_PLAN.md)
+
+The inventory work above was only the `Item` half of the product. Day 0 added the rest of the
+object model — `User`, `Profile`, `Community`, `Template`, `Loadout` — and generalized the
+two-layer merge into the full four-layer model.
+
+- **Four metadata layers**: `global -> community -> user public -> user private`. The private
+  layer is redacted inside the service (not the handler) so a new endpoint cannot leak it.
+  Every resolution returns a `provenance` map (`namespace.key -> layer`) so the UI can show
+  *why* a value looks the way it does.
+    - The old `user_metadata` table folded into `profile_item_layers`
+      (`overrides -> public_metadata`, `open_data -> private_metadata`); the legacy
+      `/items/{id}/metadata` endpoint stays as a compat shim over the new store.
+- **Community scoping**: a community layer only applies when the item is read with that
+  community's context. This keeps hobby-specific attributes (`ul_score`) out of the global
+  record while still making them first-class inside the community.
+- **`core` namespace**: one platform-owned namespace (`weight_g`, `cost_cents`, `consumable`)
+  gives the stats engine something universal to sum, without constraining any hobby's own
+  namespaces.
+- **Immutable template versions**: publishing appends a version and moves a pointer; loadouts
+  pin `(template_id, template_version)`. An author can evolve a template freely and nobody
+  else's loadout breaks — which also means we don't need migration functions yet.
+- **Whole-tree entry writes**: `PUT /loadouts/{id}/entries` replaces the entire entry set.
+  The editor already owns the full client-side state, so this keeps writes atomic and the
+  client trivial, at the cost of larger payloads (fine at Day 0 sizes).
+- **Nesting via `parent_entry_id`**: preserves the telescoping pack → pocket → ditty bag UX
+  while keeping the storage flat and easy to query.
+- **Draft vs publish validation**: template violations are warnings while drafting and
+  blocking errors at publish time, so the editor never fights the user mid-build.
+- **Dev auth**: `X-Profile-ID` resolved in `internal/auth`, a deliberate single swap point for
+  real authentication. The UI's profile switcher is the login screen.
+- **Frontend is now API-backed**: the mock database was removed; when the API is unreachable
+  the app says so explicitly rather than silently showing fake data.
+
