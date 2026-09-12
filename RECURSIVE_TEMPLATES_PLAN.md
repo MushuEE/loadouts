@@ -80,29 +80,57 @@ Enforcing at write time means readers can trust the data. The renderer still car
 defensive depth guard, in the same spirit as the existing `depth > 8` check in
 `buildEntryTree`, but it should never fire.
 
-### You may only attach a loadout you own
+### You may only attach a sub-loadout you own
 
-This is a narrowing I am proposing rather than one that was asked for, and the reason is a
-leak.
+A loadout has exactly one owner: the profile that created it. That profile is the only
+party that can create, edit, or delete it. Attachment follows: you may hang a loadout off
+your slot only if it is yours.
 
-The visibility rule chosen for this feature is that a private sub-loadout inside a public
-parent renders as a placeholder *with its weight still counted* — otherwise the public
-total is simply wrong, which is worse than coy. That is fine when it is your own loadout:
-you attached it, you are disclosing your own aggregate, and the contents stay hidden.
+The rule exists because of a leak. The visibility answer chosen for this feature is that a
+private sub-loadout inside a public parent renders as a placeholder *with its weight still
+counted* — otherwise the public total is simply wrong, which is worse than coy. That is
+fine when the discloser and the owner are the same party: you are revealing your own
+aggregate, and the contents stay hidden.
 
-It is not fine across users. If Alice publishes "Secret Meals", Bob attaches it to his
+It is not fine across parties. If Alice publishes "Secret Meals", Bob attaches it to his
 public trip, and Alice then makes it private, Bob's trip would keep broadcasting Alice's
-weight and cost — and keep tracking her edits — to everyone, forever.
+weight and cost — and keep tracking her edits — to everyone, forever. Owner-only
+attachment means the only aggregate ever disclosed this way belongs to whoever chose to
+disclose it.
 
-Restricting attachment to loadouts you own removes that entirely. The cross-user case is
-still served, and served better, by **fork-then-attach**: forking gives you a copy you can
-actually edit, which is what you wanted anyway. Fork already exists.
+Using someone else's kit is served, and served better, by **fork-then-attach**: a fork
+gives you a copy you can actually edit, which is what you wanted anyway. Fork already
+exists.
 
 > [!NOTE]
-> Even own-only, attaching a private loadout to a public parent discloses that
-> sub-loadout's weight, cost, and item count — just not its contents or its name. That is
-> a deliberate trade for honest totals, and the placeholder should say so plainly rather
-> than pretending nothing is there.
+> Attaching a private loadout to a public parent discloses that sub-loadout's weight, cost,
+> and item count — just not its contents or its name. That is a deliberate trade for honest
+> totals, and the placeholder should say so plainly rather than pretending nothing is there.
+
+#### Rejected: community- and platform-owned loadouts
+
+This was built and then removed. The reasoning for it went: the best use of this feature is
+a community's canonical sub-kit — an "UL Backpacking 3-Season Meal Kit" that every member
+hangs off their trip's food slot — so `Loadout` should gain `OwnerType`/`OwnerID` mirroring
+`Template`, and attachment should require authority over the *child's owner* rather than
+personal ownership.
+
+It worked, and it cost too much. Polymorphic ownership dragged in a three-way authority
+check on every mutation, a service-level `canView` to compensate for `IsVisibleTo` being
+unable to recognise a community admin, an ownership-transfer operation with authority
+checks on both ends, and a second owner column that had to stay consistent with the author
+column forever.
+
+What killed it is that the payoff was also a misfeature. A shared, centrally-edited kit
+means a mod editing the canonical meal kit silently changes the weight of trips that were
+planned months ago. **A trip's numbers should never move because someone else edited
+something.** Fork-then-attach gives every member a stable snapshot they control, which is
+what you actually want from a packing list.
+
+The genuine need underneath — *"how does the community point at the good kit?"* — is
+discovery, not ownership, and it is answered by community favorites (see
+`COMMUNITY_FAVORITES.md`): a community endorses a loadout it does not own, and members fork
+it. Endorsement is cheap, reversible, and cannot change anyone's totals.
 
 ### Slots declare which templates they accept
 
@@ -165,20 +193,29 @@ type ResolvedSubLoadout struct {
 
 ### Migration `0007`
 
-Two nullable columns on `loadout_entries`, plus the reverse index that the depth check
-depends on:
+`0007` teaches entries about sub-loadouts:
 
 ```sql
-ALTER TABLE loadout_entries ADD COLUMN child_loadout_id TEXT REFERENCES loadouts(id) ON DELETE SET NULL;
+ALTER TABLE loadout_entries ALTER COLUMN item_id DROP NOT NULL;
+ALTER TABLE loadout_entries ADD COLUMN child_loadout_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE loadout_entries ADD COLUMN selected BOOLEAN NOT NULL DEFAULT true;
-CREATE INDEX idx_loadout_entries_child ON loadout_entries(child_loadout_id) WHERE child_loadout_id IS NOT NULL;
-ALTER TABLE loadout_entries ADD CONSTRAINT entry_is_item_xor_loadout
-  CHECK ((item_id IS NOT NULL AND child_loadout_id IS NULL)
-      OR (item_id IS NULL AND child_loadout_id IS NOT NULL));
+CREATE INDEX idx_loadout_entries_child ON loadout_entries(child_loadout_id)
+    WHERE child_loadout_id <> '';
+ALTER TABLE loadout_entries ADD CONSTRAINT entry_item_xor_child_loadout CHECK (
+    (item_id IS NOT NULL AND child_loadout_id = '')
+    OR (item_id IS NULL AND child_loadout_id <> ''));
 ```
 
-`ON DELETE SET NULL` rather than `CASCADE`: deleting "Meals Day 2" must not silently delete
-the trip's food entry, it must leave a dangling entry the validator can report as missing.
+`child_loadout_id` has **no foreign key**, which is deliberate rather than lazy. We want
+the reference to outlive its target: deleting "Meals Day 2" should leave the trip's food
+entry in place so the UI can say the sub-loadout is gone. `ON DELETE CASCADE` erases that
+evidence, and `ON DELETE SET NULL` produces a row satisfying neither half of the check
+constraint, which makes the delete fail outright. Dangling is a state we want to represent,
+so integrity here belongs to the service.
+
+Because `item_id` is now nullable, `SELECT *` no longer scans into a plain Go string, so
+the projection became explicit with `COALESCE`. That keeps `sql.NullString` out of
+`core.LoadoutEntry` and therefore out of every caller.
 
 ## 4. Resolution and rollup
 
@@ -201,23 +238,24 @@ New validation issues: `sub_loadout_missing`, `sub_loadout_wrong_template`,
 
 ## 5. Work breakdown
 
-| Phase | Scope |
-| --- | --- |
-| 1 | Core types: `SelectionMode`, slot fields, entry fields, `ResolvedSubLoadout`, pure graph helpers (cycle + depth) with heavy unit tests |
-| 2 | Store: `child_loadout_id` plumbing, reverse lookup `LoadoutsReferencing`, migration `0007`, memory + Postgres |
-| 3 | Service: attach/detach validation (ownership, cycle, depth, template match, selection), recursive `Detail` with batched level resolution and memoized stats |
-| 4 | Validation issues + publish gating |
-| 5 | HTTP API: attach/detach/select endpoints, sub-loadout-aware entry replacement |
-| 6 | Frontend: sub-loadout slot cell, swipe between children, placeholder card, nested navigation |
-| 7 | Seed: a "Meals" template and a three-day trip that uses it |
-| 8 | Docs + `smoke_recursive.sh` |
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 1 | Core types: `SelectionMode`, slot fields, entry fields, `ResolvedSubLoadout`, pure graph helpers (cycle + depth) with heavy unit tests | ✅ |
+| 2 | Store: `child_loadout_id` plumbing, reverse lookup `LoadoutsReferencing`, batched level reads, migration `0007`, memory + Postgres | ✅ |
+| 3 | Service: attach/detach validation (ownership, cycle, depth, template match, selection), recursive `Detail` with batched level resolution and memoized stats | |
+| 4 | Validation issues + publish gating | |
+| 5 | HTTP API: attach/detach/select endpoints, sub-loadout-aware entry replacement | |
+| 6 | Frontend: sub-loadout slot cell, swipe between children, placeholder card, nested navigation | |
+| 7 | Seed: a "Meals" template and a three-day trip that uses it | |
+| 8 | Docs + `smoke_recursive.sh` | |
 
 ## 6. Non-goals
 
 | Deferred | Why |
 | --- | --- |
-| Cross-user attachment | The leak described above; fork-then-attach covers it |
+| Attaching a loadout you do not own | The leak described above; fork-then-attach covers it |
+| Community- or platform-owned loadouts | Tried and removed — see the rejected-design note above. Community favorites answer the real need |
 | Auto-creating a sub-loadout from an empty slot | Nice UX, but it is a frontend flow over existing endpoints |
 | Recursive plugin surfaces (a widget that sums across the whole tree) | The tree is exposed to plugins as data; aggregating it is a follow-up |
-| Sharing one sub-loadout across owners with live sync | Same leak, plus it needs a permission model we do not have |
+| Co-ownership of one loadout by several profiles | One loadout, one owner. Shared editing wants per-loadout ACLs, which is a different feature |
 | Templates that reference themselves for a "repeat N times" shorthand | A cycle by construction; wants a different feature (slot multiplicity) |
