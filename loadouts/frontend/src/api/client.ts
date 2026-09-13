@@ -28,7 +28,11 @@ import type {
   Visibility,
 } from './types';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api/v1';
+// Relative by default so the app works from any host: the dev server proxies /api to the
+// backend, and a deployed build is served from the same origin. An absolute URL here
+// would resolve against the *viewer's* machine, which breaks as soon as the browser and
+// the backend are not on the same box. Override with VITE_API_URL to point elsewhere.
+const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 /** The profile the client is acting as. Day 0 auth is a single header. */
 let actingProfileId = '';

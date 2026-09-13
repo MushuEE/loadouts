@@ -68,7 +68,14 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-The frontend talks to `http://localhost:8080/api/v1` by default; override with `VITE_API_URL`.
+Everything the browser needs is on **port 5173**: the dev server proxies `/api`, `/healthz`
+and `/sandbox` to the backend, so the app is same-origin and needs no CORS. The client
+requests `/api/v1` relative to whatever origin served the page, which is also what makes it
+work when the browser is on a different machine than the backend. Override with
+`VITE_API_URL` to point at a backend elsewhere.
+
+See [LOCAL_DEV.md](LOCAL_DEV.md) for reaching it from another machine, acting as an admin,
+and troubleshooting.
 
 ### Demo data
 
