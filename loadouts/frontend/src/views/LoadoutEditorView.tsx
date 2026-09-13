@@ -9,6 +9,8 @@ import { Badge, ErrorNote, Spinner } from '../components/ui';
 import { FavoritePanel } from '../components/FavoritePanel';
 import { ItemPickerModal } from '../components/ItemPickerModal';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
+import { Paperdoll } from '../components/Paperdoll';
+import { isMapped, targetForSlot } from '../paperdoll/archetypes';
 
 /** Flatten the server's nested entry tree back into the flat list the API expects on write. */
 function flatten(entries: ResolvedEntry[]): LoadoutEntry[] {
@@ -71,6 +73,13 @@ export function LoadoutEditorView({
   const slots: SlotDefinition[] = currentNode
     ? currentNode.item.provided_slots ?? []
     : data?.template.version.slots ?? [];
+
+  // Slots the paperdoll cannot place on a figure stay in the grid. Inside a container the
+  // paperdoll is not shown at all, so the grid takes everything.
+  const gridSlots = useMemo(
+    () => (path.length === 0 ? slots.filter((s) => !isMapped(targetForSlot(s))) : slots),
+    [slots, path.length],
+  );
 
   async function persist(entries: LoadoutEntry[]) {
     setBusy(true);
@@ -306,9 +315,23 @@ export function LoadoutEditorView({
               <p className="text-stone-500 text-sm mb-6">{data.loadout.description}</p>
             )}
 
+            {/* The paperdoll takes the slots it can place on a figure; the grid keeps the
+                rest. Only at the template root - inside a container the slots are the
+                container's own compartments, which are not body parts. */}
+            {path.length === 0 && (
+              <Paperdoll
+                templateName={data.template.template.name}
+                slots={slots}
+                entries={currentEntries}
+                readOnly={!isOwner}
+                onPick={(slot) => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' })}
+                onRemove={removeEntry}
+              />
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {/* Structured slots from the template (or the container item). */}
-              {slots.map((slot) => {
+              {gridSlots.map((slot) => {
                 const occupants = currentEntries.filter((e) => e.entry.slot_id === slot.id);
                 return (
                   <SlotCell
