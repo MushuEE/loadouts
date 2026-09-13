@@ -10,7 +10,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Vendored rather than CDN-loaded. The CDNs are not reachable from every network this
+     gets opened on, and the failure mode is silent: the page's own CSS paints the dark
+     background, React never mounts, and you get a black rectangle with no error on screen.
+     Vendoring also makes the file genuinely standalone - it needs no network at all. -->
+<script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
     theme: {
@@ -69,9 +73,27 @@
 <body class="font-sans text-ink antialiased">
 <div id="root"></div>
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<script src="vendor/react.min.js"></script>
+<script src="vendor/react-dom.min.js"></script>
+<script src="vendor/babel.min.js"></script>
+
+<script>
+  // A failed script tag leaves no trace on screen: the page's own CSS still paints the dark
+  // background, the text/babel block never executes, and the result is an unexplained black
+  // rectangle. Say so instead.
+  (function () {
+    var missing = ['React', 'ReactDOM', 'Babel'].filter(function (g) { return !window[g]; });
+    if (!missing.length) return;
+    document.getElementById('root').innerHTML =
+      '<div style="max-width:34rem;margin:18vh auto;font:14px/1.6 system-ui,sans-serif;color:#c9d1de">' +
+      '<div style="font-size:15px;font-weight:700;color:#fbbf24;margin-bottom:.6rem">This prototype could not load its dependencies</div>' +
+      '<div>Missing: <code style="color:#ff8000">' + missing.join(', ') + '</code></div>' +
+      '<div style="margin-top:.8rem;color:#6b7484">Expected them alongside this file in ' +
+      '<code>vendor/</code>. If you are serving this over HTTP, make sure that directory is ' +
+      'served too; if you opened the file directly, make sure it was not moved away from its ' +
+      '<code>vendor/</code> folder.</div></div>';
+  })();
+</script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
