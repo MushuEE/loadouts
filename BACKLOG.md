@@ -24,6 +24,20 @@ than parked.
 
 ---
 
+## Tagging
+
+Three related issues, none started.
+[#16](https://github.com/MushuEE/loadouts/issues/16) covers tags and filtering *within* a
+loadout, and why seasonality belongs in alternatives slots rather than in a fork-per-season
+or a tag filter that moves canonical base weight.
+[#17](https://github.com/MushuEE/loadouts/issues/17) specifies the deterministic ordering
+invariant that filtering depends on — one item always takes the default position.
+[#18](https://github.com/MushuEE/loadouts/issues/18) is analysis only: whether tags are
+globally searchable, and why event tags like `#ironman2028` belong on the loadout rather
+than on a globally shared item.
+
+---
+
 ## Purchase from a loadout (affiliate codes)
 
 **Status:** designed far enough to know the shape, not started.
