@@ -366,45 +366,61 @@ const mk = (o) => ({
   wornSlot: null,
   worn: false,
   countsAs: 'worn',
-  user: { overrideOz: null, publicNote: '', privateNote: '' },
+  position: 0,
+  user: { overrideOz: null, publicNote: '', privateNote: '', tags: [] },
   ...o,
 });
 
 /* ─── BACKPACKING ─────────────────────────────────────────────────────── */
 
 const BACKPACKING_ITEMS = [
-  /* headgear — a multi-select slot: every piece counts, none excludes another */
+  /* Headgear — a multi-select slot: every piece counts, none excludes another.
+     Beanie and Balaclava both carry the user tag `cold-weather`, and both sit at
+     position 0, so they are the worked example for the ordering rule in #17. */
   mk({
     id: 'sun-hat', name: 'Solstice Sun Hat', short: 'Sun Hat', icon: '🧢',
     rarity: 'common', category: 'gear', baseOz: 2.5, priceCents: 3400,
     wornSlot: 'headgear', worn: true, countsAs: 'base',
     stats: [['UPF Rating', '50+'], ['Brim', '3.5 in'], ['Packable', 'Yes'], ['Vented', 'Mesh panel']],
-    global: { brand: 'Ventum', material: 'Ripstop Nylon', sku: 'VT-SH-05' },
-    community: { ulScore: 7.2, rating: 4.1, votes: 218, quote: 'Cheap, packable, does the job. The brim flaps in any real wind.' },
+    global: { brand: 'Ventum', material: 'Ripstop Nylon', sku: 'VT-SH-05', tags: ['headwear', 'sun'] },
+    community: { ulScore: 7.2, rating: 4.1, votes: 218, quote: 'Cheap, packable, does the job. The brim flaps in any real wind.', tags: ['three-season'] },
+    user: { overrideOz: null, publicNote: '', privateNote: '', tags: ['warm-weather'] },
   }),
   mk({
     id: 'beanie', name: 'Alpha Grid Beanie', short: 'Beanie', icon: '🎧',
     rarity: 'uncommon', category: 'gear', baseOz: 1.1, priceCents: 3800,
     wornSlot: 'headgear', worn: true, countsAs: 'base',
     stats: [['Fabric', '90 g/m²'], ['Coverage', 'Ears'], ['Sleep Rated', 'Yes'], ['Packed', 'Fist-sized']],
-    global: { brand: 'Senchi Designs', material: 'Polartec Alpha Direct', sku: 'SN-AD-BN' },
-    community: { ulScore: 8.6, rating: 4.6, votes: 512, quote: 'An ounce that buys you ten degrees of sleep comfort. Always in the kit.' },
+    global: { brand: 'Senchi Designs', material: 'Polartec Alpha Direct', sku: 'SN-AD-BN', tags: ['headwear', 'insulation'] },
+    community: { ulScore: 8.6, rating: 4.6, votes: 512, quote: 'An ounce that buys you ten degrees of sleep comfort. Always in the kit.', tags: ['sleep-system'] },
+    user: { overrideOz: null, publicNote: '', privateNote: '', tags: ['cold-weather'] },
+  }),
+  mk({
+    id: 'balaclava', name: 'Windproof Balaclava', short: 'Balaclava', icon: '🥷',
+    rarity: 'rare', category: 'gear', baseOz: 1.6, priceCents: 5200,
+    wornSlot: 'headgear', worn: true, countsAs: 'base',
+    stats: [['Fabric', 'Gridded fleece'], ['Face Panel', 'Windproof'], ['Coverage', 'Full'], ['Packed', 'Palm-sized']],
+    global: { brand: 'Black Rock', material: 'Polartec Wind Pro', sku: 'BR-BAL-WP', tags: ['headwear', 'insulation', 'windproof'] },
+    community: { ulScore: 7.9, rating: 4.3, votes: 295, quote: 'The difference between a survivable night above treeline and a sleepless one.', tags: ['alpine'] },
+    user: { overrideOz: null, publicNote: '', privateNote: '', tags: ['cold-weather'] },
   }),
   mk({
     id: 'headlamp', name: 'NOVA 400 Headlamp', short: 'Headlamp', icon: '🔦',
     rarity: 'rare', category: 'gear', baseOz: 2.5, priceCents: 6500,
     wornSlot: 'headgear', countsAs: 'base',
     stats: [['Luminance', '400 lm'], ['Burn Time', '10 h'], ['Beam', '70 m'], ['Charge', 'USB-C']],
-    global: { brand: 'Nitecore', material: 'Aluminum Alloy', sku: 'NC-NU25-400' },
-    community: { ulScore: 8.5, rating: 4.6, votes: 1580, quote: '400 lumens you will never use. The 1-lumen moonlight mode is the point.' },
+    global: { brand: 'Nitecore', material: 'Aluminum Alloy', sku: 'NC-NU25-400', tags: ['lighting', 'electronics'] },
+    community: { ulScore: 8.5, rating: 4.6, votes: 1580, quote: '400 lumens you will never use. The 1-lumen moonlight mode is the point.', tags: ['night-hiking'] },
+    user: { overrideOz: null, publicNote: '', privateNote: '', tags: ['all-season'] },
   }),
   mk({
     id: 'head-net', name: 'No-See-Um Head Net', short: 'Bug Net', icon: '🕸️',
     rarity: 'common', category: 'gear', baseOz: 0.9, priceCents: 1200,
     wornSlot: 'headgear', countsAs: 'base',
     stats: [['Mesh', 'No-see-um'], ['Fits Over', 'Brimmed hat'], ['Packed', 'Golf ball'], ['Closure', 'Drawcord']],
-    global: { brand: 'Sea to Summit', material: 'Polyester Mesh', sku: 'STS-HN-NSU' },
-    community: { ulScore: 8.2, rating: 4.4, votes: 690, quote: 'Weighs nothing, saves your sanity in the Sierra in July. Non-negotiable.' },
+    global: { brand: 'Sea to Summit', material: 'Polyester Mesh', sku: 'STS-HN-NSU', tags: ['headwear', 'insect'] },
+    community: { ulScore: 8.2, rating: 4.4, votes: 690, quote: 'Weighs nothing, saves your sanity in the Sierra in July. Non-negotiable.', tags: ['bug-season'] },
+    user: { overrideOz: null, publicNote: '', privateNote: '', tags: ['warm-weather'] },
   }),
 
   /* remaining worn slots */
@@ -896,6 +912,49 @@ const toLbs  = (oz) => oz / 16;
 const fmtLbs = (oz) => toLbs(oz).toFixed(2);
 const fmtOz  = (oz) => `${oz.toFixed(1)}oz`;
 const fmtUSD = (c)  => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * The canonical ordering for entries inside a slot.
+ *
+ * The last key is the item id, which is unique — that is what makes this a
+ * TOTAL order. Because it is total, the sort's stability and the order rows
+ * happened to arrive in are both irrelevant, which is the whole point: two
+ * items sharing a tag must resolve to the same default position on every load,
+ * on every backend, for every viewer.
+ *
+ * Do not remove the id comparison because it "never matters in practice". It
+ * matters exactly when everything else ties, which is exactly when
+ * nondeterminism would otherwise show up.
+ */
+function compareEntries(a, b) {
+  if (a.worn !== b.worn) return a.worn ? -1 : 1;             // the active pick pins first
+  if (a.position !== b.position) return a.position - b.position;
+  const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+  if (an !== bn) return an < bn ? -1 : 1;                    // predictable to a human
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;             // unique ⇒ total
+}
+
+/**
+ * Tags union across the three layers, each attributed to the layer that first
+ * introduced it. Union, not override: a community tagging something
+ * `ul-approved` must never erase your own `cold-weather`.
+ */
+const TAG_LAYER_STYLE = {
+  global:    { color: '#9d9d9d', borderColor: '#333b49', background: '#1b1f27' },
+  community: { color: '#7cc0ff', borderColor: 'rgba(0,112,221,.45)', background: 'rgba(0,112,221,.10)' },
+  user:      { color: '#fbbf24', borderColor: 'rgba(251,191,36,.40)', background: 'rgba(251,191,36,.08)' },
+};
+
+function mergedTags(item) {
+  const seen = new Map();
+  const add = (arr, layer) => (arr || []).forEach((t) => { if (!seen.has(t)) seen.set(t, layer); });
+  add(item.global.tags, 'global');
+  add(item.community.tags, 'community');
+  add(item.user.tags, 'user');
+  return Array.from(seen.entries())
+    .map(([tag, layer]) => ({ tag, layer }))
+    .sort((a, b) => (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0));
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    PRIMITIVES
@@ -1400,6 +1459,7 @@ function Inspector({ item, slot, onOverride, onResetOverride, onNote, onToggleEq
   const overridden = item.user.overrideOz != null;
   const delta = overridden ? item.user.overrideOz - item.baseOz : 0;
   const multi = slot && slot.multi;
+  const tags = mergedTags(item);
 
   function commitDraft(v) {
     setDraft(v);
@@ -1486,6 +1546,26 @@ function Inspector({ item, slot, onOverride, onResetOverride, onNote, onToggleEq
           </div>
           {overridden && <div className="font-mono text-[10px] text-dim text-right">manufacturer spec {fmtOz(item.baseOz)}</div>}
         </div>
+
+        {tags.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-edge">
+            <div className="font-mono text-[9px] uppercase tracking-[.16em] text-dim mb-2">
+              Tags <span className="text-edge2 normal-case tracking-normal">· union across layers</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map(({ tag, layer }) => (
+                <span
+                  key={tag}
+                  title={`Contributed by the ${layer} layer`}
+                  className="font-mono text-[10px] px-1.5 py-0.5 rounded border"
+                  style={TAG_LAYER_STYLE[layer]}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="p-5 border-b border-edge">
@@ -1666,7 +1746,9 @@ function App() {
 
   const wornBySlot = useMemo(() => {
     const m = {};
-    tpl.slots.forEach((s) => { m[s.id] = worn.filter((i) => i.wornSlot === s.id); });
+    // Canonical order, not array order — see compareEntries. Two items sharing a
+    // tag must always resolve the same way round.
+    tpl.slots.forEach((s) => { m[s.id] = worn.filter((i) => i.wornSlot === s.id).sort(compareEntries); });
     return m;
   }, [worn, tpl]);
 
