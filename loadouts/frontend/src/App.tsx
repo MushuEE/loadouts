@@ -85,7 +85,7 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         {loadoutId ? (
-          <LoadoutEditorView loadoutId={loadoutId} onBack={() => setLoadoutId(null)} />
+          <LoadoutEditorView loadoutId={loadoutId} onBack={() => setLoadoutId(null)} onOpenLoadout={openLoadout} />
         ) : (
           <>
             {tab === 'home' && <HomeView onOpenLoadout={openLoadout} />}
