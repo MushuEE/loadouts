@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowUpLeft, ChevronRight, GitFork, Globe, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { ArrowUpLeft, ChevronRight, GitFork, Globe, Lock, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import type { LoadoutDetail, LoadoutEntry, ResolvedEntry, SlotDefinition, Visibility } from '../api/types';
 import { useSession } from '../session/SessionContext';
@@ -39,7 +39,17 @@ function subtreeIds(node: ResolvedEntry): string[] {
   return ids;
 }
 
-export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; onBack: () => void }) {
+export function LoadoutEditorView({
+  loadoutId,
+  onBack,
+  onOpenLoadout,
+}: {
+  loadoutId: string;
+  onBack: () => void;
+  /** Navigate to another loadout. Forking produces a new one, and without this the editor
+   *  has no way to take you there. */
+  onOpenLoadout: (id: string) => void;
+}) {
   const { profile } = useSession();
   const detail = useAsync<LoadoutDetail>(() => api.getLoadout(loadoutId), [loadoutId]);
   // Path of entry IDs we have zoomed into (pack -> pocket -> ditty bag).
@@ -114,8 +124,9 @@ export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; on
     try {
       const forked = await api.forkLoadout(loadoutId);
       setPath([]);
-      window.location.hash = `#loadout/${forked.loadout.id}`;
-      detail.reload();
+      // Navigate to the copy. This used to set window.location.hash, which nothing in the
+      // app reads, and then reload the *original* - so forking looked like a no-op.
+      onOpenLoadout(forked.loadout.id);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -267,6 +278,30 @@ export function LoadoutEditorView({ loadoutId, onBack }: { loadoutId: string; on
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto">
             {error && <div className="mb-4"><ErrorNote message={error} /></div>}
+
+            {/* Editing is owner-only, and the add buttons simply vanish for everyone else.
+                Without this the loadout reads as broken rather than as someone else's. */}
+            {!isOwner && (
+              <div className="mb-6 flex items-center gap-4 p-4 rounded-xl bg-stone-900 border border-stone-800">
+                <Lock className="w-4 h-4 text-stone-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-stone-300">
+                    Read-only — this loadout belongs to @{data.owner.handle}
+                  </div>
+                  <div className="text-[11px] text-stone-500 mt-0.5">
+                    {profile ? <>You are acting as @{profile.handle}. </> : null}
+                    Fork it to get an editable copy of your own.
+                  </div>
+                </div>
+                <button
+                  onClick={fork}
+                  className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/15 hover:bg-orange-500/25 text-orange-300 text-xs font-medium"
+                >
+                  <GitFork className="w-3.5 h-3.5" /> Fork
+                </button>
+              </div>
+            )}
+
             {data.loadout.description && path.length === 0 && (
               <p className="text-stone-500 text-sm mb-6">{data.loadout.description}</p>
             )}
@@ -365,6 +400,9 @@ function SlotCell({
   onRemove: (node: ResolvedEntry) => void;
 }) {
   const empty = occupants.length === 0;
+  // max_items 0 means "exactly one" and -1 means unlimited. See core.SlotDefinition.
+  const capacity = slot.max_items === -1 ? Infinity : Math.max(slot.max_items, 1);
+  const full = occupants.length >= capacity;
 
   return (
     <div
@@ -377,10 +415,20 @@ function SlotCell({
           {slot.name}
           {slot.required && <span className="text-orange-500/80"> *</span>}
         </span>
-        {!readOnly && (slot.max_items === -1 || occupants.length < Math.max(slot.max_items, 1)) && (
+        {/* Three distinct states. Previously "full" and "read-only" both rendered as a
+            bare absence of the + button, which reads as a broken slot either way. */}
+        {!readOnly && !full && (
           <button onClick={onPick} className="text-stone-600 hover:text-orange-400" title="Add item">
             <Plus className="w-3.5 h-3.5" />
           </button>
+        )}
+        {!readOnly && full && capacity !== Infinity && (
+          <span
+            className="text-[9px] font-medium text-stone-600 tabular-nums shrink-0"
+            title={`This slot holds ${capacity === 1 ? 'one item' : `${capacity} items`}. Remove one to swap.`}
+          >
+            {occupants.length}/{capacity}
+          </span>
         )}
       </div>
 

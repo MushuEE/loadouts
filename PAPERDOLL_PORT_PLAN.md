@@ -19,22 +19,43 @@ required, max_items, position}`. Nothing says where a slot lives on a body, or w
 is on the body at all. The seeded *Basic Backpacking* template only hints at it by naming
 slots `"Worn: Torso"` / `"Worn: Legs"` / `"Worn: Feet"`.
 
-So a faithful port needs slots to carry presentation intent. Three ways:
+So slots have to carry presentation intent. Three ways:
 
 | | How | Cost | Breaks on |
 | --- | --- | --- | --- |
-| **A. Frontend registry** | Map template id → silhouette + per-slot body part | None. No backend change | Any template not in the map, i.e. every user-created one |
-| **B. Slot fields** | Add `paperdoll_part` / `worn` / `column` to `SlotDefinition` | Schema + template version migration | Nothing, but it is the slow path |
-| **C. Heuristics** | Infer from slot id and category | None | Silently, and confusingly |
+| **A. Archetype defaults** | A slot resolves to a body part by its archetype — shirt→torso, pants→legs, hat→head, backpack→back | None. No backend change | Nothing visibly; unmapped slots fall to a neutral column |
+| **B. Slot fields** | Add `paperdoll_part` to `SlotDefinition` | Schema + template version migration | Nothing, but it is the slow path |
+| **C. Silent inference** | Guess from arbitrary slot ids and free-text names | None | Silently, and confusingly |
 
-**Recommendation: A now, B as the real answer, C never.** The registry is a deliberate
-stopgap that keeps the schema decision open until the paperdoll has earned it. Phase 1
-ships A behind a single module so that swapping in B later touches one file.
+**Decision: A now, B as the eventual override, C never.**
+
+A is not the same as C, and the difference is the whole point. A is a **published vocabulary
+of archetypes with a declared default part each**, plus a visible fallback for anything
+outside it. C is pattern-matching on strings and hoping. A slot says *"I am a `hat` slot"*
+and the mapping is a lookup anyone can read; it does not try to divine that
+`"Worn: Head (winter)"` probably means a head.
 
 > [!IMPORTANT]
-> A generic humanoid fallback is not optional. Freeform loadouts and user templates have no
-> registry entry, and "no paperdoll at all" would be a visible regression from today's grid.
-> Unmapped slots render in a neutral column beside the figure and highlight nothing.
+> Defaults must be **overridable, never mandatory**. When B lands, a template sets
+> `paperdoll_part` explicitly and the archetype default is just what it starts at. Today's
+> seeded slots already imply their archetypes (`worn-torso`, `worn-legs`, `worn-feet`,
+> `pack`), so the defaults cover the real templates on day one.
+
+Unmapped slots — Freeform, anything exotic — render in a neutral column flanking the figure
+and highlight nothing. They never disappear.
+
+### Not every slot is a body part
+
+A tent is not worn. Some slots belong to the **template**, not the body: a shelter gets its
+own SVG pitched beside the figure rather than a highlight on a limb. So the paperdoll has
+two kinds of target:
+
+- **Body parts** — head, torso, legs, feet, hands, back
+- **Template props** — tent, bike, and similar, each its own SVG, owned by the template
+  rather than the archetype vocabulary
+
+The prototype already proves out the second: the cycling silhouette *is* a prop, with the
+rider implied.
 
 ---
 
@@ -59,21 +80,45 @@ dead end.
 
 ## Phase 1 — Paperdoll
 
+**Layout: gear surrounds the figure, WoW-style.** Slot frames flank the silhouette in left
+and right columns, figure centred. Not a list beside a picture — the figure is the middle
+of the composition.
+
 - [ ] `src/paperdoll/parts.tsx` — `useParts`, `SvgDefs`, the gold-glow filter and floor
       gradient. Straight port
 - [ ] `src/paperdoll/silhouettes.tsx` — `Hiker`, `Bike`, `Runner`, plus a generic `Humanoid`
       fallback. Straight port, plus **`legs` as a real part** (the hiker's legs are currently
       hardcoded inert, but `Worn: Legs` is a real slot in the seeded template)
-- [ ] `src/paperdoll/registry.ts` — the option-A map: template id → `{silhouette, slots: {slotId → {part, column}}}`.
-      One file, so option B replaces exactly this
-- [ ] `src/components/Paperdoll.tsx` — `PaperdollSlot` + `Paperdoll`, adapted from
+- [ ] `src/paperdoll/archetypes.ts` — the published vocabulary: archetype → default body
+      part. One file, so per-template overrides later slot in behind it
+- [ ] `src/paperdoll/props.tsx` — template-owned SVGs that are not body parts. A tent
+      pitched beside the figure is the first one
+- [ ] `src/components/Paperdoll.tsx` — `PaperdollSlot` + `Paperdoll`, driven by
       `ResolvedEntry[]` instead of the prototype's flat item array
-- [ ] Wire into `LoadoutEditorView` above the existing slot grid; unmapped slots keep using
-      the grid, so nothing disappears
+- [ ] Wire into `LoadoutEditorView`; unmapped slots keep the existing grid so nothing
+      disappears
+
+### Interaction
+
+- [ ] **Hover a populated slot → its doll element highlights.** Hover is the primary
+      binding, not selection. It is exploratory: sweep the slots and watch the figure light
+      up, no clicking and no state to undo
+- [ ] **Empty slots still render.** A slot is a statement about what the template *expects*,
+      so an unfilled one is information — it shows a gap in the kit. Rendering only filled
+      slots would hide exactly the thing a gear list is for
+- [ ] Hovering an empty slot highlights nothing. There is no item to point at, and a lit
+      limb with nothing in it reads as a bug
+- [ ] Multi-item slots light their part once, as a unit
+
+> [!NOTE]
+> The prototype keys highlighting off *selection*, because it also drives an inspector
+> panel. Hover and selection can coexist — hover previews, click pins — but hover is what
+> makes the figure feel alive, so it ships first and selection follows in Phase 3 with the
+> inspector.
 
 Deliberately **not** in phase 1: rarity tiers and the encumbrance gauge. Rarity has no
-backing field, and inventing one in the frontend would be the same mistake as heuristic
-slot mapping.
+backing field, and inventing one in the frontend would be the same mistake as silent slot
+inference.
 
 ---
 
