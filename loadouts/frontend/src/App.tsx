@@ -7,6 +7,7 @@ import { CommunitiesView } from './views/CommunitiesView';
 import { GarageView } from './views/GarageView';
 import { PluginsView } from './views/PluginsView';
 import { LoadoutEditorView } from './views/LoadoutEditorView';
+import { ProfileSwitcher } from './components/ProfileSwitcher';
 
 type Tab = 'home' | 'discover' | 'communities' | 'garage' | 'plugins';
 
@@ -60,27 +61,8 @@ export default function App() {
 
         <div className="flex-1" />
 
-        {/* Profile switcher: one User can hold several Profiles, and everything you see
-            (ownership, private notes, community roles) depends on which one is active. */}
-        <div className="w-full px-2 pb-1">
-          {session.profiles.map((p) => {
-            const active = session.profile?.id === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => session.switchProfile(p.id)}
-                title={`${p.display_name} (@${p.handle})`}
-                className={`w-full aspect-square mb-2 rounded-2xl text-xs font-bold transition-all ${
-                  active
-                    ? 'bg-orange-500 text-white rounded-xl'
-                    : 'bg-stone-800 text-stone-400 hover:bg-stone-700 hover:rounded-xl'
-                }`}
-              >
-                {p.handle.slice(0, 2).toUpperCase()}
-              </button>
-            );
-          })}
-        </div>
+        <div className="w-10 border-t border-stone-800 mb-2" />
+        <ProfileSwitcher />
       </nav>
 
       <div className="flex-1 flex overflow-hidden">
