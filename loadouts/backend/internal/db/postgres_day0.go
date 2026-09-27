@@ -35,8 +35,8 @@ func (s *PostgresStore) ListUsers(ctx context.Context) ([]core.User, error) {
 }
 
 func (s *PostgresStore) CreateProfile(ctx context.Context, profile core.Profile) error {
-	query := `INSERT INTO profiles (id, user_id, handle, display_name, bio, avatar_url, is_sponsor)
-	          VALUES (:id, :user_id, :handle, :display_name, :bio, :avatar_url, :is_sponsor)`
+	query := `INSERT INTO profiles (id, user_id, handle, display_name, bio, avatar_url, is_sponsor, is_site_admin)
+	          VALUES (:id, :user_id, :handle, :display_name, :bio, :avatar_url, :is_sponsor, :is_site_admin)`
 	_, err := s.db.NamedExecContext(ctx, query, profile)
 	return err
 }
@@ -248,8 +248,8 @@ func (s *PostgresStore) ListTemplates(ctx context.Context, q core.TemplateQuery)
 
 func (s *PostgresStore) CreateTemplateVersion(ctx context.Context, v core.TemplateVersion) error {
 	// Versions are immutable: a conflicting insert is an error, never an update.
-	query := `INSERT INTO template_versions (template_id, version, slots, changelog)
-	          VALUES (:template_id, :version, :slots, :changelog)`
+	query := `INSERT INTO template_versions (template_id, version, slots, changelog, paperdoll)
+	          VALUES (:template_id, :version, :slots, :changelog, :paperdoll)`
 	_, err := s.db.NamedExecContext(ctx, query, v)
 	return err
 }

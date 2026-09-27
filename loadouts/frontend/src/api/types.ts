@@ -8,6 +8,8 @@ export interface Profile {
   bio: string;
   avatar_url: string;
   is_sponsor: boolean;
+  /** Granted by the database, never self-service. Site admins place paperdoll figures. */
+  is_site_admin: boolean;
   created_at: string;
 }
 
@@ -178,10 +180,37 @@ export interface Template {
   is_public: boolean;
 }
 
+/**
+ * A figure or tile placed on a paperdoll canvas, by its top-left cell. Figures have a fixed
+ * footprint (see paperdoll/figures.tsx); tiles carry their own size.
+ */
+export interface PaperdollBlock {
+  block: string;
+  col: number;
+  row: number;
+  cols?: number;
+  rows?: number;
+}
+
+/** Cells claimed by one slot, run-length encoded row-major: [[start, length], ...]. */
+export interface PaperdollBinding {
+  slot_id: string;
+  cells: [number, number][];
+}
+
+export interface PaperdollLayout {
+  cols: number;
+  rows: number;
+  blocks: PaperdollBlock[];
+  bindings: PaperdollBinding[];
+}
+
 export interface TemplateVersion {
   template_id: string;
   version: number;
   slots: SlotDefinition[];
+  /** Absent means the client falls back to the category-inferred paperdoll. */
+  paperdoll?: PaperdollLayout | null;
   changelog: string;
   created_at: string;
 }

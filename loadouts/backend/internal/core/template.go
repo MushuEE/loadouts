@@ -177,6 +177,9 @@ type TemplateVersion struct {
 	Slots      SlotList  `json:"slots" db:"slots"`
 	Changelog  string    `json:"changelog" db:"changelog"`
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	// Paperdoll places the slots on a grid. Nil means this version has none and the client
+	// falls back to inferring placement from slot categories.
+	Paperdoll *PaperdollLayout `json:"paperdoll,omitempty" db:"paperdoll"`
 }
 
 // SlotByID finds a slot in this version.

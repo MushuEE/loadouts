@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import {
   ArrowUpLeft,
   ChevronRight,
+  ArrowUpCircle,
   GitFork,
   Globe,
+  Grid3x3,
   Image as ImageIcon,
   Lock,
   Maximize2,
@@ -23,6 +25,8 @@ import { ItemPickerModal } from '../components/ItemPickerModal';
 import { ItemDetailPanel } from '../components/ItemDetailPanel';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 import { Paperdoll } from '../components/Paperdoll';
+import { GridPaperdoll } from '../components/GridPaperdoll';
+import { PaperdollEditor } from '../components/PaperdollEditor';
 import { CoverImage, CoverPicker } from '../components/CoverPicker';
 import { isMapped, targetForSlot } from '../paperdoll/archetypes';
 
@@ -78,6 +82,7 @@ export function LoadoutEditorView({
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [addingSlot, setAddingSlot] = useState(false);
   const [editingCover, setEditingCover] = useState(false);
+  const [editingPaperdoll, setEditingPaperdoll] = useState(false);
 
   const data = detail.data;
   const isOwner = !!profile && data?.loadout.owner_profile_id === profile.id;
@@ -107,12 +112,21 @@ export function LoadoutEditorView({
   // apart from the template's.
   const customSlotIds = useMemo(() => new Set(extraSlots.map((s) => s.id)), [extraSlots]);
 
-  // Slots the paperdoll cannot place on a figure stay in the grid. Inside a container the
-  // paperdoll is not shown at all, so the grid takes everything.
-  const gridSlots = useMemo(
-    () => (path.length === 0 ? slots.filter((s) => !isMapped(targetForSlot(s))) : slots),
-    [slots, path.length],
-  );
+  // A template version with a layout places slots explicitly; one without falls back to
+  // placing them by category.
+  const layout = data?.template.version.paperdoll ?? null;
+
+  // Slots the paperdoll does not place stay in the grid: unbound ones under a layout,
+  // unmapped categories under the fallback. Inside a container the paperdoll is not shown
+  // at all, so the grid takes everything.
+  const gridSlots = useMemo(() => {
+    if (path.length > 0) return slots;
+    if (layout) {
+      const bound = new Set(layout.bindings.map((b) => b.slot_id));
+      return slots.filter((s) => !bound.has(s.id));
+    }
+    return slots.filter((s) => !isMapped(targetForSlot(s)));
+  }, [slots, path.length, layout]);
 
   async function persist(entries: LoadoutEntry[]) {
     setBusy(true);
@@ -174,6 +188,21 @@ export function LoadoutEditorView({
       onOpenLoadout(forked.loadout.id);
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  /** Moves the loadout to another version of its template. The server refuses if that would
+   *  strand gear in a slot the version no longer has. */
+  async function moveToVersion(version: number) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateLoadout(loadoutId, { template_version: version });
+      detail.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -252,6 +281,27 @@ export function LoadoutEditorView({
   // everything; elsewhere it catches items left behind by a template version bump.
   const slotIds = new Set(slots.map((s) => s.id));
   const looseEntries = currentEntries.filter((e) => !slotIds.has(e.entry.slot_id));
+
+  // Templates are edited by their owner, and by site admins everywhere but the platform's
+  // own. Community templates are editable by that community's admins too, but the server
+  // is the one that knows who they are, so the button is only offered where it is certain.
+  const tmpl = data.template.template;
+  const canEditPaperdoll =
+    !!profile &&
+    tmpl.owner_type !== 'platform' &&
+    (profile.is_site_admin || (tmpl.owner_type === 'profile' && tmpl.owner_id === profile.id));
+  const newerVersion = tmpl.latest_version > data.loadout.template_version ? tmpl.latest_version : null;
+
+  const paperdollButton = canEditPaperdoll ? (
+    <button
+      onClick={() => setEditingPaperdoll(true)}
+      className="hidden md:flex items-center gap-1.5 text-[11px] text-stone-500 hover:text-orange-400"
+      title="Lay this template's slots out on a grid"
+    >
+      <Grid3x3 className="w-3.5 h-3.5" />
+      {layout ? 'Edit paperdoll' : 'Lay out a paperdoll'}
+    </button>
+  ) : null;
 
   const nextFreeSlot: SlotDefinition = {
     id: `free-${Date.now().toString(36)}`,
@@ -435,10 +485,51 @@ export function LoadoutEditorView({
               <p className="text-stone-500 text-sm mb-6">{data.loadout.description}</p>
             )}
 
-            {/* The paperdoll takes the slots it can place on a figure; the grid keeps the
-                rest. Only at the template root - inside a container the slots are the
-                container's own compartments, which are not body parts. */}
-            {path.length === 0 && (
+            {/* A loadout stays on the version it was built against until its owner moves
+                it, so a new layout (or new slots) never rearranges someone's kit under
+                them. */}
+            {isOwner && newerVersion && path.length === 0 && (
+              <div className="mb-6 flex items-center gap-4 p-4 rounded-xl bg-sky-500/5 border border-sky-500/20">
+                <ArrowUpCircle className="w-4 h-4 text-sky-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-stone-300">
+                    {tmpl.name} v{newerVersion} is out
+                  </div>
+                  <div className="text-[11px] text-stone-500 mt-0.5">
+                    This loadout is on v{data.loadout.template_version}. Moving keeps your gear as long as its
+                    slots still exist.
+                  </div>
+                </div>
+                <button
+                  onClick={() => moveToVersion(newerVersion)}
+                  disabled={busy}
+                  className="shrink-0 px-3 py-2 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-medium disabled:opacity-50"
+                >
+                  Move to v{newerVersion}
+                </button>
+              </div>
+            )}
+
+            {/* The paperdoll takes the slots it can place; the grid keeps the rest. Only
+                at the template root - inside a container the slots are the container's
+                own compartments, which are not body parts. */}
+            {path.length === 0 && layout && (
+              <GridPaperdoll
+                layout={layout}
+                slots={slots}
+                entries={currentEntries}
+                readOnly={!isOwner}
+                selectedEntryId={selectedEntryId}
+                onPick={(slot) => setPicking({ slot, parentEntryId: '' })}
+                onRemove={removeEntry}
+                onSelect={setSelectedEntryId}
+                action={paperdollButton}
+              />
+            )}
+            {path.length === 0 && !layout && paperdollButton && (
+              <div className="flex justify-end mb-2">{paperdollButton}</div>
+            )}
+            {path.length === 0 && !layout && (
               <Paperdoll
                 templateName={data.template.template.name}
                 slots={slots}
@@ -554,6 +645,23 @@ export function LoadoutEditorView({
           onSelect={(itemId) => {
             addItem(itemId, picking.slot, picking.parentEntryId);
             setPicking(null);
+          }}
+        />
+      )}
+
+      {editingPaperdoll && profile && (
+        <PaperdollEditor
+          templateId={tmpl.id}
+          isSiteAdmin={profile.is_site_admin}
+          onClose={() => setEditingPaperdoll(false)}
+          onSaved={async (saved) => {
+            setEditingPaperdoll(false);
+            // An owner editing from their own loadout wants to see the result on it. If the
+            // move would strand gear it fails quietly and the upgrade banner explains.
+            if (isOwner) {
+              await api.updateLoadout(loadoutId, { template_version: saved.template.latest_version }).catch(() => {});
+            }
+            detail.reload();
           }}
         />
       )}

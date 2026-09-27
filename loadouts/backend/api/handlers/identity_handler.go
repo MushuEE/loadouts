@@ -120,6 +120,8 @@ func (h *IdentityHandler) CreateProfile(w http.ResponseWriter, r *http.Request) 
 		writeError(w, err)
 		return
 	}
+	// Site admin is never self-service.
+	profile.IsSiteAdmin = false
 	created, err := h.identity.CreateProfile(r.Context(), profile)
 	if err != nil {
 		writeError(w, err)

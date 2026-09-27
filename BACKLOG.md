@@ -153,13 +153,25 @@ bytes, so image storage is the shared first step.
 
 ---
 
+## Paperdoll follow-ups
+
+Grid paperdolls (#30) shipped with the category fallback (#31) for versions that have no layout. Left out deliberately:
+
+| Item | Notes |
+|---|---|
+| User-submitted figures and layouts | Placing figures is site-admin only because the figure set is curated artwork in `frontend/src/paperdoll/figures.tsx`. Opening it up needs a submission and review flow, and sanitising any uploaded SVG. |
+| Touch painting | The editor is mouse-only and hidden on small screens. Touch needs a paint/scroll mode switch so drags do not fight the page. |
+| Mirroring | Paint one hand, get the other. Skipped: selecting both hands' cells for one slot already works. |
+| Community-admin entry point | Community admins can publish layouts for their community's templates (the server allows it), but the loadout view only shows "Edit paperdoll" to the template's owning profile and site admins, because it does not know who admins which community. |
+| Figure set | Hiker, runner, cyclist and tent. Climber, skier and a seated/camp figure are the obvious next ones; each needs its footprint added to `core.PaperdollFigures` too. |
+
 ## Platform
 
 | Item | Notes |
 | --- | --- |
 | Real authentication | Day 0 auth is a single `X-Profile-ID` header with no verification. Everything downstream already threads an acting profile, so this is a middleware swap plus a login UI. |
 | Redis merge cache | Layer resolution is recomputed per request. Fine at current scale; the merge is pure and keyed by `(item, community, owner, viewer)`, so it caches cleanly when needed. |
-| Template migration functions | Moving a loadout from template v1 to v2 currently has no assisted path — slots that disappeared or changed categories need manual fixing. |
+| Template migration functions | A loadout can move to a newer template version only when every slot it uses still exists (`checkVersionMove`), which covers versions that just add a paperdoll or slots. Anything that removes or renames a slot in use has no assisted path yet. |
 
 ---
 
@@ -171,3 +183,6 @@ bytes, so image storage is the shared first step.
   as a compat shim over profile layers. They can go once nothing depends on them.
 - `MemoryStore` and the Postgres migrations seed slightly different supplier sets;
   `ImportService.Commit` papers over this by upserting from the code registry on first use.
+- `POST /profiles` decodes straight into `core.Profile`, so a client can self-assign
+  `is_sponsor`. `is_site_admin` is now forced off there; `is_sponsor` should get the same
+  treatment (or a request type of its own).

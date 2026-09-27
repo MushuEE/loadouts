@@ -115,7 +115,7 @@ export function Paperdoll({
   );
 }
 
-function PaperdollSlot({
+export function PaperdollSlot({
   slot,
   occupants,
   readOnly,

@@ -120,6 +120,8 @@ func Run(ctx context.Context, s Services) error {
 	gearhead, err := s.Identity.CreateProfile(ctx, core.Profile{
 		UserID: alex.ID, Handle: "gearhead", DisplayName: "Alex | Gearhead",
 		Bio: "Thru-hiker chasing a sub-5kg base weight.",
+		// The demo's site admin, so the figure paperdolls below can be published and edited.
+		IsSiteAdmin: true,
 	})
 	if err != nil {
 		return err
@@ -225,7 +227,33 @@ func Run(ctx context.Context, s Services) error {
 	if err != nil {
 		return err
 	}
+	// Version 2 lays the slots out on a paperdoll. The PCT loadout pins it; version 1 stays
+	// behind without one, which is what older loadouts would see.
+	backpacking, err = s.Templates.PublishPaperdoll(ctx, gearhead.ID, backpacking.Template.ID, backpackingPaperdoll(), "Lay out the hiker paperdoll.")
+	if err != nil {
+		return fmt.Errorf("seed backpacking paperdoll: %w", err)
+	}
 
+	running, err := s.Templates.Create(ctx, gearhead.ID, core.Template{
+		Name: "Trail Running", Description: "Race-day kit, head to toe, plus fuel and water.",
+		OwnerType: core.OwnerProfile, IsPublic: true,
+	}, core.SlotList{
+		{ID: "hat", Name: "Hat / Visor", AcceptedCategories: []string{"hat"}, Position: 0},
+		{ID: "shirt", Name: "Shirt", AcceptedCategories: []string{"shirt"}, Required: true, Position: 1},
+		{ID: "watch", Name: "Watch", AcceptedCategories: []string{"electronics"}, Position: 2},
+		{ID: "shorts", Name: "Shorts", AcceptedCategories: []string{"pants"}, Required: true, Position: 3},
+		{ID: "shoes", Name: "Shoes", AcceptedCategories: []string{"shoes"}, Required: true, Position: 4},
+		{ID: "nutrition", Name: "Nutrition", AcceptedCategories: []string{"consumable"}, MaxItems: 8, Position: 5},
+		{ID: "hydration", Name: "Hydration", AcceptedCategories: []string{"kitchen", "organizer"}, MaxItems: 2, Position: 6},
+	}, "Initial version.")
+	if err != nil {
+		return err
+	}
+	if _, err := s.Templates.PublishPaperdoll(ctx, gearhead.ID, running.Template.ID, trailRunningPaperdoll(), "Lay out the runner paperdoll."); err != nil {
+		return fmt.Errorf("seed running paperdoll: %w", err)
+	}
+
+	// Daily Fit deliberately has no layout: it shows the category-inferred fallback.
 	if _, err := s.Templates.Create(ctx, fitcheck.ID, core.Template{
 		Name: "Daily Fit", Description: "Head-to-toe outfit template.",
 		OwnerType: core.OwnerProfile, IsPublic: true,
@@ -236,6 +264,24 @@ func Run(ctx context.Context, s Services) error {
 		{ID: "footwear", Name: "Footwear", AcceptedCategories: []string{"shoes"}, Required: true, Position: 3},
 	}, "Initial version."); err != nil {
 		return err
+	}
+
+	// A meal plan has no body to dress, so its layout is tiles only, and trailsponsor - not a
+	// site admin - can publish it on their own template.
+	meals, err := s.Templates.Create(ctx, sponsor.ID, core.Template{
+		Name: "Trail Meal Plan", Description: "A day of food, one tile per meal.",
+		OwnerType: core.OwnerProfile, IsPublic: true,
+	}, core.SlotList{
+		{ID: "breakfast", Name: "Breakfast", AcceptedCategories: []string{"consumable"}, MaxItems: -1, Position: 0},
+		{ID: "lunch", Name: "Lunch", AcceptedCategories: []string{"consumable"}, MaxItems: -1, Position: 1},
+		{ID: "dinner", Name: "Dinner", AcceptedCategories: []string{"consumable"}, MaxItems: -1, Position: 2},
+		{ID: "snacks", Name: "Snacks", AcceptedCategories: []string{"consumable"}, MaxItems: -1, Position: 3},
+	}, "Initial version.")
+	if err != nil {
+		return err
+	}
+	if _, err := s.Templates.PublishPaperdoll(ctx, sponsor.ID, meals.Template.ID, mealPlanPaperdoll(), "Lay out the meal tiles."); err != nil {
+		return fmt.Errorf("seed meal plan paperdoll: %w", err)
 	}
 
 	// --- Loadouts ---
