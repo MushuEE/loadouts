@@ -124,6 +124,17 @@ func (s SlotDefinition) Capacity() int {
 // SlotList is a JSONB-backed slice of SlotDefinition.
 type SlotList []SlotDefinition
 
+// ByID finds a slot by id. The mirror of TemplateVersion.SlotByID, for callers holding a
+// merged list rather than a template version.
+func (s SlotList) ByID(id string) (SlotDefinition, bool) {
+	for _, slot := range s {
+		if slot.ID == id {
+			return slot, true
+		}
+	}
+	return SlotDefinition{}, false
+}
+
 func (s SlotList) Value() (driver.Value, error) {
 	if s == nil {
 		return []byte("[]"), nil

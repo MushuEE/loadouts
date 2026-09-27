@@ -36,6 +36,9 @@ func Extract(body []byte, target Target) Draft {
 	if applyJSONLD(page, &d) {
 		d.Source = ViaJSONLD
 	}
+	// A JSON-LD name is the product's own name, never a page title, so it has no store
+	// suffix to trim. Trimming it anyway mangles names like "Pad Thai - Vegan".
+	nameFromJSONLD := d.Name != ""
 
 	metas := parseMetaTags(page)
 	if fillFromMeta(metas, &d) && d.Source == ViaNone {
@@ -52,7 +55,9 @@ func Extract(body []byte, target Target) Draft {
 	}
 
 	// Retailers append their own name to the title ("Copper Spur UL2 | REI Co-op").
-	d.Name = trimSiteSuffix(d.Name)
+	if !nameFromJSONLD {
+		d.Name = trimSiteSuffix(d.Name)
+	}
 
 	if d.Category == "" {
 		d.Category = GuessCategory(d.Name, d.Description, stringExtra(d, "breadcrumb"))

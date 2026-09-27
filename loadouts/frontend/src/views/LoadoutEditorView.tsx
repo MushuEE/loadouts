@@ -1,5 +1,15 @@
 import { useMemo, useState } from 'react';
-import { ArrowUpLeft, ChevronRight, GitFork, Globe, Lock, Maximize2, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowUpLeft,
+  ChevronRight,
+  GitFork,
+  Globe,
+  Lock,
+  Maximize2,
+  Plus,
+  PlusSquare,
+  Trash2,
+} from 'lucide-react';
 import { api } from '../api/client';
 import type { LoadoutDetail, LoadoutEntry, ResolvedEntry, SlotDefinition, Visibility } from '../api/types';
 import { useSession } from '../session/SessionContext';
@@ -8,6 +18,7 @@ import { categoryIcon, formatCost, formatGrams, formatKg } from '../lib/display'
 import { Badge, ErrorNote, Spinner } from '../components/ui';
 import { FavoritePanel } from '../components/FavoritePanel';
 import { ItemPickerModal } from '../components/ItemPickerModal';
+import { ItemDetailPanel } from '../components/ItemDetailPanel';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 import { Paperdoll } from '../components/Paperdoll';
 import { isMapped, targetForSlot } from '../paperdoll/archetypes';
@@ -59,6 +70,10 @@ export function LoadoutEditorView({
   const [picking, setPicking] = useState<{ slot: SlotDefinition; parentEntryId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The entry whose details are pinned open in the right rail. An id rather than the node,
+  // so a reload after an edit re-resolves it instead of showing a stale copy.
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [addingSlot, setAddingSlot] = useState(false);
 
   const data = detail.data;
   const isOwner = !!profile && data?.loadout.owner_profile_id === profile.id;
@@ -69,10 +84,24 @@ export function LoadoutEditorView({
     return findNode(data.entries, path[path.length - 1]);
   }, [data, path]);
 
+  const selectedNode = useMemo(
+    () => (data && selectedEntryId ? findNode(data.entries, selectedEntryId) : null),
+    [data, selectedEntryId],
+  );
+
   const currentEntries: ResolvedEntry[] = currentNode ? currentNode.children ?? [] : data?.entries ?? [];
+
+  // Slots the owner added live on the loadout, not on the template. The server merges them
+  // in EffectiveSlots; the client has to do the same or a custom slot would be accepted on
+  // write and then never rendered.
+  const extraSlots = data?.loadout.extra_slots ?? [];
   const slots: SlotDefinition[] = currentNode
     ? currentNode.item.provided_slots ?? []
-    : data?.template.version.slots ?? [];
+    : [...(data?.template.version.slots ?? []), ...extraSlots];
+
+  // Custom slots are the only removable ones, so the grid needs to be able to tell them
+  // apart from the template's.
+  const customSlotIds = useMemo(() => new Set(extraSlots.map((s) => s.id)), [extraSlots]);
 
   // Slots the paperdoll cannot place on a figure stay in the grid. Inside a container the
   // paperdoll is not shown at all, so the grid takes everything.
@@ -113,6 +142,9 @@ export function LoadoutEditorView({
   function removeEntry(node: ResolvedEntry) {
     if (!data) return;
     const doomed = new Set(subtreeIds(node));
+    // The inspector is pinned to an id, so removing the thing it points at would leave a
+    // panel describing gear that is no longer here.
+    if (selectedEntryId && doomed.has(selectedEntryId)) setSelectedEntryId(null);
     persist(flatten(data.entries).filter((e) => !doomed.has(e.id)));
   }
 
@@ -141,13 +173,68 @@ export function LoadoutEditorView({
     }
   }
 
+  /**
+   * Define a slot on this loadout alone. The template is untouched, so this does not change
+   * what anyone else's copy looks like - it is the cheap version of "I need somewhere to put
+   * my dog's booties" that does not require owning the template.
+   */
+  async function addSlot(name: string, category: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addLoadoutSlot(loadoutId, {
+        name,
+        accepted_categories: category ? [category] : ['universal'],
+        required: false,
+        max_items: 1,
+      });
+      setAddingSlot(false);
+      detail.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSlot(slot: SlotDefinition) {
+    const occupied = currentEntries.filter((e) => e.entry.slot_id === slot.id).length;
+    // The server takes the contents with the slot rather than orphaning them. That is the
+    // right behaviour but a surprising one, so say it out loud before doing it.
+    const warning = occupied
+      ? `Remove "${slot.name}"? The ${occupied === 1 ? 'item' : `${occupied} items`} in it will be removed too.`
+      : `Remove "${slot.name}"?`;
+    if (!window.confirm(warning)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeLoadoutSlot(loadoutId, slot.id);
+      detail.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (detail.loading) return <Spinner label="Loading loadout…" />;
   if (detail.error) return <div className="p-8 flex-1"><ErrorNote message={detail.error} /></div>;
   if (!data) return null;
 
-  // Freeform templates define no slots, so we synthesize one open slot per existing entry
-  // plus a trailing empty one; structured templates render their fixed slot grid.
-  const freeform = slots.length === 0;
+  // Freeform templates define no slots, so we synthesize one open slot per loose entry plus
+  // a trailing empty one; structured templates render their fixed slot grid.
+  //
+  // This asks the *template*, not the merged list. Adding a single custom slot to a Freeform
+  // loadout would otherwise flip this flag and strand every existing item: they sit in
+  // synthesised `free-*` slots that the grid only renders on the freeform path.
+  const declaredSlots = currentNode ? currentNode.item.provided_slots ?? [] : data.template.version.slots ?? [];
+  const freeform = declaredSlots.length === 0;
+
+  // Entries that belong to no slot in the effective list. On a freeform loadout that is
+  // everything; elsewhere it catches items left behind by a template version bump.
+  const slotIds = new Set(slots.map((s) => s.id));
+  const looseEntries = currentEntries.filter((e) => !slotIds.has(e.entry.slot_id));
+
   const nextFreeSlot: SlotDefinition = {
     id: `free-${Date.now().toString(36)}`,
     name: 'Add item',
@@ -324,8 +411,10 @@ export function LoadoutEditorView({
                 slots={slots}
                 entries={currentEntries}
                 readOnly={!isOwner}
+                selectedEntryId={selectedEntryId}
                 onPick={(slot) => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' })}
                 onRemove={removeEntry}
+                onSelect={setSelectedEntryId}
               />
             )}
 
@@ -333,39 +422,47 @@ export function LoadoutEditorView({
               {/* Structured slots from the template (or the container item). */}
               {gridSlots.map((slot) => {
                 const occupants = currentEntries.filter((e) => e.entry.slot_id === slot.id);
+                const custom = customSlotIds.has(slot.id);
                 return (
                   <SlotCell
                     key={slot.id}
                     slot={slot}
                     occupants={occupants}
                     readOnly={!isOwner}
+                    custom={custom}
+                    selectedEntryId={selectedEntryId}
                     onPick={() => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' })}
                     onZoom={(node) => setPath([...path, node.entry.id])}
                     onRemove={removeEntry}
+                    onSelect={setSelectedEntryId}
+                    // Only a slot you invented can be taken away. A template slot belongs to
+                    // the version this loadout is pinned to, not to you.
+                    onRemoveSlot={isOwner && custom ? () => removeSlot(slot) : undefined}
                   />
                 );
               })}
 
-              {/* Freeform level: existing items plus one open slot. */}
-              {freeform &&
-                currentEntries.map((node) => (
-                  <SlotCell
-                    key={node.entry.id}
-                    slot={{
-                      id: node.entry.slot_id,
-                      name: 'Item',
-                      accepted_categories: ['universal'],
-                      required: false,
-                      max_items: 1,
-                      position: node.entry.position,
-                    }}
-                    occupants={[node]}
-                    readOnly={!isOwner}
-                    onPick={() => setPicking({ slot: nextFreeSlot, parentEntryId: currentNode?.entry.id ?? '' })}
-                    onZoom={(n) => setPath([...path, n.entry.id])}
-                    onRemove={removeEntry}
-                  />
-                ))}
+              {/* Loose items: everything not claimed by a slot, one synthesised cell each. */}
+              {looseEntries.map((node) => (
+                <SlotCell
+                  key={node.entry.id}
+                  slot={{
+                    id: node.entry.slot_id,
+                    name: 'Item',
+                    accepted_categories: ['universal'],
+                    required: false,
+                    max_items: 1,
+                    position: node.entry.position,
+                  }}
+                  occupants={[node]}
+                  readOnly={!isOwner}
+                  selectedEntryId={selectedEntryId}
+                  onPick={() => setPicking({ slot: nextFreeSlot, parentEntryId: currentNode?.entry.id ?? '' })}
+                  onZoom={(n) => setPath([...path, n.entry.id])}
+                  onRemove={removeEntry}
+                  onSelect={setSelectedEntryId}
+                />
+              ))}
 
               {freeform && isOwner && (
                 <button
@@ -375,6 +472,26 @@ export function LoadoutEditorView({
                   <Plus className="w-6 h-6" />
                   <span className="text-[11px] uppercase font-bold tracking-wider">Add item</span>
                 </button>
+              )}
+
+              {/* Inventing a slot is only offered at the root. Inside a container the slots
+                  are the container's own compartments, which come from the item, not from
+                  you - a pocket you made up would have nowhere to live. */}
+              {isOwner && path.length === 0 && !addingSlot && (
+                <button
+                  onClick={() => setAddingSlot(true)}
+                  className="aspect-[4/3] rounded-xl border border-dashed border-stone-800 hover:border-sky-500/60 text-stone-600 hover:text-sky-400 flex flex-col items-center justify-center gap-2"
+                >
+                  <PlusSquare className="w-6 h-6" />
+                  <span className="text-[11px] uppercase font-bold tracking-wider">Add slot</span>
+                  <span className="text-[10px] text-stone-700 px-3 text-center leading-snug">
+                    Yours only — the template is untouched
+                  </span>
+                </button>
+              )}
+
+              {addingSlot && (
+                <AddSlotForm busy={busy} onCancel={() => setAddingSlot(false)} onSubmit={addSlot} />
               )}
             </div>
 
@@ -392,6 +509,10 @@ export function LoadoutEditorView({
           </div>
         </div>
       </main>
+
+      {/* A rail, not a modal. Inspecting is something you do *while* comparing slots, so it
+          must not cover the grid or need dismissing before the next click. */}
+      {selectedNode && <ItemDetailPanel node={selectedNode} onClose={() => setSelectedEntryId(null)} />}
 
       {picking && (
         <ItemPickerModal
@@ -411,16 +532,26 @@ function SlotCell({
   slot,
   occupants,
   readOnly,
+  custom,
+  selectedEntryId,
   onPick,
   onZoom,
   onRemove,
+  onSelect,
+  onRemoveSlot,
 }: {
   slot: SlotDefinition;
   occupants: ResolvedEntry[];
   readOnly: boolean;
+  /** True if the owner invented this slot rather than inheriting it from the template. */
+  custom?: boolean;
+  selectedEntryId: string | null;
   onPick: () => void;
   onZoom: (node: ResolvedEntry) => void;
   onRemove: (node: ResolvedEntry) => void;
+  onSelect: (entryId: string | null) => void;
+  /** Absent for template slots, which are not the owner's to delete. */
+  onRemoveSlot?: () => void;
 }) {
   const empty = occupants.length === 0;
   // max_items 0 means "exactly one" and -1 means unlimited. See core.SlotDefinition.
@@ -433,15 +564,25 @@ function SlotCell({
         empty ? 'bg-stone-900/40 border-dashed border-stone-800' : 'bg-stone-900 border-stone-700'
       }`}
     >
-      <div className="flex items-center justify-between px-3 py-2 bg-black/20">
-        <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate">
+      <div className={`flex items-center gap-2 px-3 py-2 ${custom ? 'bg-sky-500/10' : 'bg-black/20'}`}>
+        <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest truncate flex-1">
           {slot.name}
           {slot.required && <span className="text-orange-500/80"> *</span>}
         </span>
+        {/* Say whose slot this is. Without it a custom slot looks like part of the template,
+            and its remove button looks like it would edit the template for everyone. */}
+        {custom && (
+          <span
+            className="text-[8px] font-bold uppercase tracking-wider text-sky-400/80 shrink-0"
+            title="You added this slot to this loadout. The template does not have it."
+          >
+            yours
+          </span>
+        )}
         {/* Three distinct states. Previously "full" and "read-only" both rendered as a
             bare absence of the + button, which reads as a broken slot either way. */}
         {!readOnly && !full && (
-          <button onClick={onPick} className="text-stone-600 hover:text-orange-400" title="Add item">
+          <button onClick={onPick} className="text-stone-600 hover:text-orange-400 shrink-0" title="Add item">
             <Plus className="w-3.5 h-3.5" />
           </button>
         )}
@@ -452,6 +593,15 @@ function SlotCell({
           >
             {occupants.length}/{capacity}
           </span>
+        )}
+        {onRemoveSlot && (
+          <button
+            onClick={onRemoveSlot}
+            className="text-stone-600 hover:text-red-400 shrink-0"
+            title="Remove this slot"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         )}
       </div>
 
@@ -469,12 +619,22 @@ function SlotCell({
           occupants.map((node) => {
             const hasSlots = (node.item.provided_slots ?? []).length > 0;
             const childCount = node.children?.length ?? 0;
+            const selected = selectedEntryId === node.entry.id;
             return (
-              <div key={node.entry.id} className="group">
+              <div
+                key={node.entry.id}
+                className={`group rounded-lg -mx-1 px-1 ${selected ? 'bg-sky-500/10 ring-1 ring-sky-500/40' : ''}`}
+              >
                 <div className="flex items-start gap-2">
                   <span className="text-stone-400 mt-0.5">{categoryIcon(node.item.category, 'w-4 h-4')}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-stone-200 leading-tight">
+                  {/* Clicking the item is inspect, not edit. A second click closes, so the
+                      rail is a toggle rather than something you have to go dismiss. */}
+                  <button
+                    onClick={() => onSelect(selected ? null : node.entry.id)}
+                    className="flex-1 min-w-0 text-left"
+                    title="Show details"
+                  >
+                    <div className={`text-sm leading-tight ${selected ? 'text-sky-200' : 'text-stone-200'}`}>
                       {node.item.name}
                       {node.entry.quantity > 1 && (
                         <span className="text-stone-500 font-mono text-xs"> ×{node.entry.quantity}</span>
@@ -484,7 +644,7 @@ function SlotCell({
                       <span>{formatGrams(Number(node.item.metadata?.core?.weight_g ?? 0) * node.entry.quantity)}</span>
                       <span>{formatCost(Number(node.item.metadata?.core?.cost_cents ?? 0) * node.entry.quantity)}</span>
                     </div>
-                  </div>
+                  </button>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {hasSlots && (
                       <button onClick={() => onZoom(node)} className="text-stone-500 hover:text-white" title="Open container">
@@ -514,3 +674,97 @@ function SlotCell({
     </div>
   );
 }
+
+/**
+ * Inline form for inventing a slot, sized to sit in the grid where the "Add slot" tile was.
+ *
+ * Inline rather than a modal because it is a small, low-stakes, repeatable action, and
+ * because you want to see the slots you already have while naming the next one.
+ */
+function AddSlotForm({
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (name: string, category: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('');
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim()) onSubmit(name.trim(), category);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel();
+      }}
+      className="rounded-xl border border-sky-500/40 bg-stone-900 p-3 flex flex-col gap-2 min-h-[9rem]"
+    >
+      <div className="text-[10px] font-bold uppercase tracking-widest text-sky-400/80">New slot</div>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Slot name"
+        className="w-full px-2 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-sm text-stone-200 placeholder:text-stone-600 focus:outline-none focus:border-sky-500/60"
+      />
+      <select
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
+        className="w-full px-2 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-xs text-stone-300 focus:outline-none focus:border-sky-500/60"
+      >
+        {/* Empty means universal. Restricting is the opt-in, because a slot you invented for
+            yourself is usually for the one thing the template did not anticipate. */}
+        <option value="">Accepts anything</option>
+        {SLOT_CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            Only {c}
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-2 mt-auto">
+        <button
+          type="submit"
+          disabled={busy || !name.trim()}
+          className="flex-1 px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 text-xs font-medium disabled:opacity-40"
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs text-stone-400"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Categories a custom slot may restrict itself to.
+ *
+ * Hard-coded against the backend's seeded vocabulary rather than derived from the item
+ * catalogue: a category with nothing in it yet is still a legitimate thing to reserve a slot
+ * for, and deriving the list would quietly hide exactly those.
+ */
+const SLOT_CATEGORIES = [
+  'consumable',
+  'electronics',
+  'fuel',
+  'kitchen',
+  'organizer',
+  'outerwear',
+  'pack',
+  'pants',
+  'poles',
+  'shelter',
+  'shirt',
+  'shoes',
+  'sleep',
+];

@@ -40,12 +40,32 @@ export function formatCost(cents: number): string {
   return `$${(cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
-/** Visual identity per layer, used by the provenance chips in the item inspector. */
-export const LAYER_STYLES: Record<LayerName, { label: string; className: string }> = {
-  global: { label: 'Global', className: 'bg-stone-700/60 text-stone-300' },
-  community: { label: 'Community', className: 'bg-sky-500/20 text-sky-300' },
-  user_public: { label: 'You (public)', className: 'bg-emerald-500/20 text-emerald-300' },
-  user_private: { label: 'You (private)', className: 'bg-purple-500/20 text-purple-300' },
+/**
+ * Visual identity per layer, used by the provenance chips in the garage and the item
+ * inspector. One table rather than one per view: a layer is the same claim wherever it is
+ * shown, and two palettes for the same concept would teach the reader nothing.
+ */
+export const LAYER_STYLES: Record<LayerName, { label: string; className: string; hint: string }> = {
+  global: {
+    label: 'Global',
+    className: 'bg-stone-700/60 text-stone-300',
+    hint: 'The shared catalogue entry everyone sees',
+  },
+  community: {
+    label: 'Community',
+    className: 'bg-sky-500/20 text-sky-300',
+    hint: 'Added by a community you belong to',
+  },
+  user_public: {
+    label: 'You (public)',
+    className: 'bg-emerald-500/20 text-emerald-300',
+    hint: 'Your own value, visible to others',
+  },
+  user_private: {
+    label: 'You (private)',
+    className: 'bg-purple-500/20 text-purple-300',
+    hint: 'Your own value, visible only to you',
+  },
 };
 
 export function categoryIcon(category: string, className = 'w-5 h-5') {

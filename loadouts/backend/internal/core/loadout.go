@@ -33,8 +33,47 @@ type Loadout struct {
 	ForkedFrom      string        `json:"forked_from" db:"forked_from"`
 	CoverImageURL   string        `json:"cover_image_url" db:"cover_image_url"`
 	ForkCount       int           `json:"fork_count" db:"fork_count"`
-	CreatedAt       time.Time     `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at" db:"updated_at"`
+	// ExtraSlots are slots the owner added to this loadout on top of its pinned template
+	// version. A template describes what a kit *usually* has; a real kit always grows
+	// something the template's author never thought of.
+	//
+	// They live on the loadout rather than on the template because editing the template
+	// would change it for everyone using it, and forking the template for every personal
+	// tweak would bury the useful templates under thousands of near-identical copies. The
+	// cost is that they are not reusable - promoting a loadout's slot layout into a real
+	// template is the escape hatch, and is deliberately a separate, later decision.
+	//
+	// SlotList rather than []SlotDefinition so it carries the JSONB Value/Scan the
+	// Postgres store needs.
+	ExtraSlots SlotList  `json:"extra_slots,omitempty" db:"extra_slots"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// EffectiveSlots is the slot list a loadout actually presents: its template version's
+// slots followed by the owner's additions.
+//
+// Everything that reasons about slots must use this rather than the template version
+// alone, or a custom slot looks undefined - it would be flagged as an unknown slot, its
+// capacity would go unchecked, and a required one would never be enforced.
+//
+// Template slots come first and win on collision. A custom slot cannot redefine a template
+// slot out from under the entries already sitting in it.
+func (l Loadout) EffectiveSlots(version TemplateVersion) SlotList {
+	slots := make(SlotList, 0, len(version.Slots)+len(l.ExtraSlots))
+	seen := make(map[string]bool, len(version.Slots))
+	for _, s := range version.Slots {
+		slots = append(slots, s)
+		seen[s.ID] = true
+	}
+	for _, s := range l.ExtraSlots {
+		if seen[s.ID] {
+			continue
+		}
+		seen[s.ID] = true
+		slots = append(slots, s)
+	}
+	return slots
 }
 
 // IsVisibleTo reports whether a viewer profile may read this loadout.

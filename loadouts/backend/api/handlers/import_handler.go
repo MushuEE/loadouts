@@ -13,6 +13,8 @@ import (
 // Preview and commit are separate endpoints because preview is a read-only, potentially
 // slow network call and commit is a fast write of already-confirmed data. Splitting them
 // also means a failed scrape never leaves a half-created item behind.
+const maxPreviewBodyBytes = 10 << 20
+
 type ImportHandler struct {
 	svc *service.ImportService
 }
@@ -40,15 +42,20 @@ func (h *ImportHandler) Suppliers(w http.ResponseWriter, r *http.Request) {
 // Preview inspects a product URL. It writes nothing, so it is safe to call on every
 // paste/keystroke-debounce from the client.
 func (h *ImportHandler) Preview(w http.ResponseWriter, r *http.Request) {
+	// Pasted page source can be large (retailers inline megabytes of hydration data), but
+	// not unbounded.
+	r.Body = http.MaxBytesReader(w, r.Body, maxPreviewBodyBytes)
 	var req struct {
 		URL string `json:"url"`
+		// HTML is optional page source pasted by the user when the store blocks our fetch.
+		HTML string `json:"html"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
 		return
 	}
 
-	preview, err := h.svc.Preview(r.Context(), req.URL)
+	preview, err := h.svc.Preview(r.Context(), req.URL, req.HTML)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ExternalLink, Link2, Loader2, PackagePlus, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardPaste, ExternalLink, Link2, Loader2, PackagePlus, X } from 'lucide-react';
 import { api, ApiError } from '../api/client';
-import type { ImportPreview, Item } from '../api/types';
+import type { ImportDraft, ImportPreview, Item } from '../api/types';
 import { formatCost, formatGrams } from '../lib/display';
 import { ErrorNote } from './ui';
 
@@ -20,11 +20,31 @@ interface FormState {
   weightG: string;
   costDollars: string;
   consumable: boolean;
+  description: string;
+  /** Scraped details with no dedicated field (material, color, sku...). Clearing one drops it. */
+  extras: Record<string, string>;
 }
 
 const EMPTY_FORM: FormState = {
   name: '', category: '', brand: '', imageUrl: '', weightG: '', costDollars: '', consumable: false,
+  description: '', extras: {},
 };
+
+function formFromDraft(d: ImportDraft): FormState {
+  return {
+    name: d.name,
+    category: d.category,
+    brand: d.brand,
+    imageUrl: d.image_url,
+    // Only prefill when the page actually told us; a blank field prompts the user,
+    // whereas a prefilled 0 quietly becomes a weightless item.
+    weightG: d.has_weight ? String(Math.round(d.weight_g)) : '',
+    costDollars: d.has_price ? (d.cost_cents / 100).toFixed(2) : '',
+    consumable: d.consumable,
+    description: d.description,
+    extras: Object.fromEntries(Object.entries(d.extras ?? {}).map(([k, v]) => [k, String(v)])),
+  };
+}
 
 /**
  * Paste-a-URL item import.
@@ -47,6 +67,8 @@ export function ImportItemModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pastedHTML, setPastedHTML] = useState('');
   const [supportedNames, setSupportedNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -56,26 +78,19 @@ export function ImportItemModal({
       .catch(() => setSupportedNames([]));
   }, []);
 
-  async function runPreview() {
+  async function runPreview(html?: string) {
     if (!url.trim()) return;
     setLoading(true);
     setError('');
     setPreview(null);
     try {
-      const result = await api.previewImport(url.trim());
+      const result = await api.previewImport(url.trim(), html);
       setPreview(result);
-      const d = result.draft;
-      setForm({
-        name: d.name,
-        category: d.category,
-        brand: d.brand,
-        imageUrl: d.image_url,
-        // Only prefill when the page actually told us; a blank field prompts the user,
-        // whereas a prefilled 0 quietly becomes a weightless item.
-        weightG: d.has_weight ? String(Math.round(d.weight_g)) : '',
-        costDollars: d.has_price ? (d.cost_cents / 100).toFixed(2) : '',
-        consumable: d.consumable,
-      });
+      setForm(formFromDraft(result.draft));
+      if (html) {
+        setPasteOpen(false);
+        setPastedHTML('');
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -98,6 +113,8 @@ export function ImportItemModal({
         cost_cents: Math.round((Number(form.costDollars) || 0) * 100),
         currency: preview.draft.currency || 'USD',
         consumable: form.consumable,
+        description: form.description.trim(),
+        extras: form.extras,
       });
       onImported(result.item);
       onClose();
@@ -149,7 +166,7 @@ export function ImportItemModal({
                 />
               </div>
               <button
-                onClick={runPreview}
+                onClick={() => runPreview()}
                 disabled={loading || !url.trim()}
                 className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-stone-800 disabled:text-stone-600 text-white text-sm font-medium rounded-lg flex items-center gap-2"
               >
@@ -188,6 +205,44 @@ export function ImportItemModal({
                 <div className="p-3 bg-amber-950/40 border border-amber-900/60 rounded-lg flex gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-200/90">{preview.warning}</p>
+                </div>
+              )}
+
+              {preview.status === 'manual' && (
+                <div className="p-3 bg-black/30 border border-stone-800 rounded-lg space-y-2">
+                  {!pasteOpen ? (
+                    <button
+                      onClick={() => setPasteOpen(true)}
+                      className="text-xs text-stone-300 hover:text-orange-400 flex items-center gap-1.5"
+                    >
+                      <ClipboardPaste className="w-3.5 h-3.5" />
+                      Paste the page source instead
+                    </button>
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-stone-500 leading-relaxed">
+                        Some stores block automated readers. Open the product in your browser, press{' '}
+                        <kbd className="px-1 bg-stone-800 rounded">Ctrl+U</kbd> (
+                        <kbd className="px-1 bg-stone-800 rounded">⌥⌘U</kbd> on Mac), select all, copy, and paste it
+                        here.
+                      </p>
+                      <textarea
+                        value={pastedHTML}
+                        onChange={(e) => setPastedHTML(e.target.value)}
+                        rows={4}
+                        placeholder="<!DOCTYPE html>..."
+                        className="w-full bg-black/40 border border-stone-800 rounded-lg px-3 py-2 text-[11px] text-stone-300 font-mono outline-none focus:border-orange-500 placeholder:text-stone-600"
+                      />
+                      <button
+                        onClick={() => runPreview(pastedHTML)}
+                        disabled={loading || !pastedHTML.trim()}
+                        className="px-3 py-1.5 bg-stone-700 hover:bg-stone-600 disabled:bg-stone-800 disabled:text-stone-600 text-white text-xs font-medium rounded-md flex items-center gap-2"
+                      >
+                        {loading && <Loader2 className="w-3 h-3 animate-spin" />}
+                        Read pasted page
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -263,6 +318,32 @@ export function ImportItemModal({
                   />
                 </Field>
               </div>
+
+              <Field label="Description">
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={2}
+                  className="w-full bg-black/40 border border-stone-800 rounded-lg px-3 py-2 text-xs text-stone-300 outline-none focus:border-orange-500"
+                />
+              </Field>
+
+              {Object.keys(form.extras).length > 0 && (
+                <Field label="Other details" hint="clear a value to leave it out">
+                  <div className="space-y-1.5">
+                    {Object.entries(form.extras).map(([key, value]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className="w-28 shrink-0 text-[11px] text-stone-500 truncate">{key.replace(/_/g, ' ')}</span>
+                        <input
+                          value={value}
+                          onChange={(e) => setForm({ ...form, extras: { ...form.extras, [key]: e.target.value } })}
+                          className="flex-1 bg-black/40 border border-stone-800 rounded-md px-2 py-1 text-xs text-stone-300 outline-none focus:border-orange-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Field>
+              )}
 
               <label className="flex items-center gap-2 text-xs text-stone-400 cursor-pointer">
                 <input

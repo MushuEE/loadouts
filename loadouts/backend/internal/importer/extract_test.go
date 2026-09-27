@@ -213,3 +213,14 @@ func TestExtractIgnoresNonProductJSONLD(t *testing.T) {
 		t.Errorf("name = %q", d.Name)
 	}
 }
+
+// A dash in a JSON-LD name is part of the product, not a store suffix.
+func TestExtractKeepsDashedJSONLDName(t *testing.T) {
+	page := `<html><head><title>Pad Thai - Vegan | Backcountry</title>
+	<script type="application/ld+json">{"@type":"Product","name":"Pad Thai - Vegan"}</script>
+	</head></html>`
+	d := Extract([]byte(page), Target{})
+	if d.Name != "Pad Thai - Vegan" {
+		t.Errorf("name = %q, want %q", d.Name, "Pad Thai - Vegan")
+	}
+}
