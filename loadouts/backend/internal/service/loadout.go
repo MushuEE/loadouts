@@ -258,8 +258,12 @@ func (s *LoadoutService) Fork(ctx context.Context, actorProfileID, loadoutID str
 		Status:          core.StatusDraft,
 		ForkedFrom:      source.ID,
 		CoverImageURL:   source.CoverImageURL,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		// Carry the owner's custom slots. Without this the copied entries would land in
+		// slots the fork does not define, and the fork would immediately be full of
+		// "slot is not defined here" warnings for gear the original held cleanly.
+		ExtraSlots: append(core.SlotList(nil), source.ExtraSlots...),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	if err := s.store.CreateLoadout(ctx, fork); err != nil {
 		return core.LoadoutDetail{}, err
@@ -290,6 +294,98 @@ func (s *LoadoutService) Fork(ctx context.Context, actorProfileID, loadoutID str
 	}
 
 	return s.Detail(ctx, fork.ID, actorProfileID)
+}
+
+// AddSlot appends a slot the owner invented to this loadout. Owner-only: a slot changes
+// what the loadout is, not just what is in it.
+//
+// The slot is scoped to this loadout alone. It does not touch the template, so it cannot
+// change what anyone else's loadout looks like, and it survives a fork.
+func (s *LoadoutService) AddSlot(ctx context.Context, actorProfileID, loadoutID string, slot core.SlotDefinition) (core.LoadoutDetail, error) {
+	loadout, err := s.requireOwner(ctx, actorProfileID, loadoutID)
+	if err != nil {
+		return core.LoadoutDetail{}, err
+	}
+
+	slot.Name = strings.TrimSpace(slot.Name)
+	if slot.Name == "" {
+		return core.LoadoutDetail{}, fmt.Errorf("%w: a slot needs a name", core.ErrInvalid)
+	}
+	if slot.ID == "" {
+		slot.ID = core.NewID("slt")
+	}
+
+	tmpl, err := s.templates.Detail(ctx, loadout.TemplateID, loadout.TemplateVersion)
+	if err != nil {
+		return core.LoadoutDetail{}, err
+	}
+	// Reject a collision rather than silently shadowing. EffectiveSlots lets the template
+	// win, so a duplicate id would produce a slot that exists in the list but can never be
+	// filled - the worst kind of bug to look at.
+	if _, clash := loadout.EffectiveSlots(tmpl.Version).ByID(slot.ID); clash {
+		return core.LoadoutDetail{}, fmt.Errorf("%w: slot %q already exists here", core.ErrInvalid, slot.ID)
+	}
+
+	// An empty accepted list means "universal", matching how freeform slots already behave
+	// in validateEntries, rather than a slot that accepts nothing at all.
+	if len(slot.AcceptedCategories) == 0 {
+		slot.AcceptedCategories = []string{"universal"}
+	}
+	slot.Position = len(loadout.EffectiveSlots(tmpl.Version))
+
+	loadout.ExtraSlots = append(loadout.ExtraSlots, slot)
+	loadout.UpdatedAt = time.Now().UTC()
+	if err := s.store.UpdateLoadout(ctx, loadout); err != nil {
+		return core.LoadoutDetail{}, err
+	}
+	return s.Detail(ctx, loadoutID, actorProfileID)
+}
+
+// RemoveSlot deletes one of the owner's custom slots, along with whatever was in it.
+//
+// Template slots are not removable. They belong to the template version this loadout is
+// pinned to, and deleting one here would make the loadout disagree with the thing it
+// claims to be an instance of.
+func (s *LoadoutService) RemoveSlot(ctx context.Context, actorProfileID, loadoutID, slotID string) (core.LoadoutDetail, error) {
+	loadout, err := s.requireOwner(ctx, actorProfileID, loadoutID)
+	if err != nil {
+		return core.LoadoutDetail{}, err
+	}
+
+	kept := make(core.SlotList, 0, len(loadout.ExtraSlots))
+	for _, s := range loadout.ExtraSlots {
+		if s.ID != slotID {
+			kept = append(kept, s)
+		}
+	}
+	if len(kept) == len(loadout.ExtraSlots) {
+		return core.LoadoutDetail{}, fmt.Errorf("%w: %q is not a custom slot on this loadout", core.ErrNotFound, slotID)
+	}
+
+	entries, err := s.store.ListLoadoutEntries(ctx, loadoutID)
+	if err != nil {
+		return core.LoadoutDetail{}, err
+	}
+	// Drop what was in the slot. Leaving the entries behind would orphan them into a slot
+	// that no longer exists, which reads as data corruption rather than a deletion.
+	remaining := make([]core.LoadoutEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.SlotID != slotID || e.ParentEntryID != "" {
+			remaining = append(remaining, e)
+		}
+	}
+
+	loadout.ExtraSlots = kept
+	loadout.UpdatedAt = time.Now().UTC()
+	if err := s.store.UpdateLoadout(ctx, loadout); err != nil {
+		return core.LoadoutDetail{}, err
+	}
+	if len(remaining) != len(entries) {
+		if err := s.store.ReplaceLoadoutEntries(ctx, loadoutID, remaining); err != nil {
+			return core.LoadoutDetail{}, err
+		}
+	}
+	return s.Detail(ctx, loadoutID, actorProfileID)
 }
 
 func (s *LoadoutService) Delete(ctx context.Context, actorProfileID, loadoutID string) error {
@@ -337,7 +433,7 @@ func (s *LoadoutService) Detail(ctx context.Context, loadoutID, viewerProfileID 
 
 	tree := buildEntryTree(entries, resolved)
 	stats := computeStats(entries, resolved)
-	issues := validateEntries(tmpl.Version, entries, resolved)
+	issues := validateEntries(loadout.EffectiveSlots(tmpl.Version), entries, resolved)
 
 	return core.LoadoutDetail{
 		Loadout:  loadout,
@@ -482,10 +578,14 @@ func computeStats(entries []core.LoadoutEntry, resolved map[string]core.Resolved
 	return stats
 }
 
-// validateEntries checks a loadout against its pinned template version and against the
-// slots provided by container items. Missing required slots are warnings while drafting
-// and become blocking errors at publish time (see Publish).
-func validateEntries(version core.TemplateVersion, entries []core.LoadoutEntry, resolved map[string]core.ResolvedItem) []core.ValidationIssue {
+// validateEntries checks a loadout against the slots it effectively presents - its pinned
+// template version plus any slots the owner added - and against the slots provided by
+// container items. Missing required slots are warnings while drafting and become blocking
+// errors at publish time (see Publish).
+//
+// It takes a resolved slot list rather than the template version because a loadout's slots
+// are no longer the template's alone; see core.Loadout.EffectiveSlots.
+func validateEntries(slots core.SlotList, entries []core.LoadoutEntry, resolved map[string]core.ResolvedItem) []core.ValidationIssue {
 	issues := []core.ValidationIssue{}
 	entriesByID := map[string]core.LoadoutEntry{}
 	for _, e := range entries {
@@ -507,8 +607,8 @@ func validateEntries(version core.TemplateVersion, entries []core.LoadoutEntry, 
 		var slot core.SlotDefinition
 		var found bool
 		if e.ParentEntryID == "" {
-			slot, found = version.SlotByID(e.SlotID)
-			if !found && len(version.Slots) == 0 {
+			slot, found = slots.ByID(e.SlotID)
+			if !found && len(slots) == 0 {
 				continue // Freeform template: any slot id is fine.
 			}
 		} else {
@@ -571,7 +671,7 @@ func validateEntries(version core.TemplateVersion, entries []core.LoadoutEntry, 
 			filled[e.SlotID] = true
 		}
 	}
-	for _, slot := range version.Slots {
+	for _, slot := range slots {
 		if slot.Required && !filled[slot.ID] {
 			issues = append(issues, core.ValidationIssue{
 				SlotID: slot.ID, Severity: "error",

@@ -31,6 +31,8 @@ func (h *LoadoutHandler) Routes() chi.Router {
 		r.Patch("/", h.Update)
 		r.Delete("/", h.Delete)
 		r.Put("/entries", h.ReplaceEntries)
+		r.Post("/slots", h.AddSlot)
+		r.Delete("/slots/{slotID}", h.RemoveSlot)
 		r.Post("/publish", h.Publish)
 		r.Post("/fork", h.Fork)
 		if h.favorites != nil {
@@ -159,6 +161,37 @@ func (h *LoadoutHandler) Fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, detail)
+}
+
+// AddSlot defines a new slot on this loadout only, leaving the template untouched.
+func (h *LoadoutHandler) AddSlot(w http.ResponseWriter, r *http.Request) {
+	var slot core.SlotDefinition
+	if err := decode(r, &slot); err != nil {
+		writeError(w, err)
+		return
+	}
+	detail, err := h.loadouts.AddSlot(r.Context(), auth.ProfileID(r.Context()), chi.URLParam(r, "loadoutID"), slot)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, detail)
+}
+
+// RemoveSlot deletes a custom slot and whatever was in it. Template slots are not
+// removable, and asking to remove one is a 404 rather than a silent no-op.
+func (h *LoadoutHandler) RemoveSlot(w http.ResponseWriter, r *http.Request) {
+	detail, err := h.loadouts.RemoveSlot(
+		r.Context(),
+		auth.ProfileID(r.Context()),
+		chi.URLParam(r, "loadoutID"),
+		chi.URLParam(r, "slotID"),
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *LoadoutHandler) Delete(w http.ResponseWriter, r *http.Request) {

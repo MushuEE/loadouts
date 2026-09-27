@@ -139,8 +139,9 @@ export const api = {
   importSuppliers: () =>
     request<{ suppliers: ImportSupplier[]; note: string }>('/imports/suppliers'),
   /** Read-only: inspects the URL and returns an editable draft without writing anything. */
-  previewImport: (url: string) =>
-    request<ImportPreview>('/imports/preview', { method: 'POST', body: JSON.stringify({ url }) }),
+  /** html is page source the user pasted when the store blocks our server-side fetch. */
+  previewImport: (url: string, html?: string) =>
+    request<ImportPreview>('/imports/preview', { method: 'POST', body: JSON.stringify({ url, html }) }),
   commitImport: (body: ImportCommitRequest) =>
     request<ImportResult>('/imports/commit', { method: 'POST', body: JSON.stringify(body) }),
 
@@ -179,6 +180,12 @@ export const api = {
     request<LoadoutDetail>(`/loadouts/${id}/publish`, { method: 'POST', body: JSON.stringify(body) }),
   forkLoadout: (id: string) => request<LoadoutDetail>(`/loadouts/${id}/fork`, { method: 'POST' }),
   deleteLoadout: (id: string) => request<void>(`/loadouts/${id}`, { method: 'DELETE' }),
+  /** Define a slot on this loadout only. The template is untouched. */
+  addLoadoutSlot: (id: string, slot: Partial<SlotDefinition>) =>
+    request<LoadoutDetail>(`/loadouts/${id}/slots`, { method: 'POST', body: JSON.stringify(slot) }),
+  /** Remove a custom slot and whatever was in it. Template slots are not removable. */
+  removeLoadoutSlot: (id: string, slotId: string) =>
+    request<LoadoutDetail>(`/loadouts/${id}/slots/${encodeURIComponent(slotId)}`, { method: 'DELETE' }),
 
   // --- Plugins ---
   listPlugins: (params: { q?: string; surface?: PluginSurface; owner_id?: string } = {}) =>

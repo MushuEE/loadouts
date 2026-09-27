@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/gmccloskey/loadouts/backend/internal/core"
@@ -315,5 +316,80 @@ func TestImportedItemWorksInLoadoutStats(t *testing.T) {
 	}
 	if detail.Stats.TotalCostCents != 54995 {
 		t.Errorf("loadout totalCostCents = %v, want 54995", detail.Stats.TotalCostCents)
+	}
+}
+
+// Scraped details with no first-class field (material, color, sku) must survive into the
+// item. Dropping them was the original bug: the extractor found them and commit threw
+// them away.
+func TestImportCommitKeepsExtrasWithoutLettingThemSpoofProvenance(t *testing.T) {
+	h, svc := newImportHarness(t, nil, nil)
+	profile := h.profile(t, "gearhead")
+
+	result, err := svc.Commit(context.Background(), CommitRequest{
+		URL: "https://www.rei.com/product/894303/tent", Name: "Copper Spur UL2", Category: "shelter",
+		Extras: map[string]interface{}{
+			"material": "  Ripstop nylon ",
+			"sku":      "894303",
+			"color":    "", // cleared in the preview: not saved
+			"supplier": "evil-corp",
+		},
+	}, profile.ID)
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	importNS := result.Item.BaseMetadata["import"].(map[string]interface{})
+	if importNS["material"] != "Ripstop nylon" || importNS["sku"] != "894303" {
+		t.Errorf("extras not persisted: %#v", importNS)
+	}
+	if _, ok := importNS["color"]; ok {
+		t.Error("a blank extra should be dropped, not stored")
+	}
+	if importNS["supplier"] != "rei" {
+		t.Errorf("supplier = %v; an extra must not override provenance", importNS["supplier"])
+	}
+}
+
+func TestImportCommitRejectsMalformedExtras(t *testing.T) {
+	h, svc := newImportHarness(t, nil, nil)
+	profile := h.profile(t, "gearhead")
+	url := "https://www.rei.com/product/894303/tent"
+
+	for name, extras := range map[string]map[string]interface{}{
+		"nested":    {"specs": map[string]interface{}{"a": 1}},
+		"long":      {"material": strings.Repeat("x", maxExtraValueLen+1)},
+		"blank key": {" ": "x"},
+	} {
+		_, err := svc.Commit(context.Background(), CommitRequest{URL: url, Name: "Tent", Extras: extras}, profile.ID)
+		if !errors.Is(err, core.ErrInvalid) {
+			t.Errorf("%s: error = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+// When the store blocks our fetch, page source pasted from the user's browser is
+// extracted instead, and the fetcher is never consulted.
+func TestImportPreviewUsesPastedHTMLWhenStoreBlocks(t *testing.T) {
+	_, svc := newImportHarness(t, nil, fmt.Errorf("the store returned HTTP 403"))
+
+	preview, err := svc.Preview(context.Background(),
+		"https://www.backcountry.com/b/backpacker-s-pantry-pad-thai-vegan?skid=BKP1WV9-ONECOL-ONESIZ",
+		`<script type="application/ld+json">{"@type":"Product","name":"Pad Thai - Vegan","material":"Freeze-dried",
+		"offers":{"price":"11.95","priceCurrency":"USD"}}</script>`)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if preview.Status != StatusParsed {
+		t.Fatalf("status = %q, want %q (warning: %s)", preview.Status, StatusParsed, preview.Warning)
+	}
+	if preview.Draft.Name != "Pad Thai - Vegan" || preview.Draft.CostCents != 1195 {
+		t.Errorf("draft = %+v", preview.Draft)
+	}
+	if preview.Draft.Extras["material"] != "Freeze-dried" {
+		t.Errorf("extras = %#v", preview.Draft.Extras)
+	}
+	if preview.Draft.Target.SupplierID != "backcountry" {
+		t.Errorf("supplier = %q; the pasted page must not change which product the URL identifies", preview.Draft.Target.SupplierID)
 	}
 }

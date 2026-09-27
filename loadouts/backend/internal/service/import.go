@@ -62,7 +62,12 @@ type ImportPreview struct {
 }
 
 // Preview inspects a product URL and returns an editable draft.
-func (s *ImportService) Preview(ctx context.Context, rawURL string) (ImportPreview, error) {
+//
+// pastedHTML is the page source the user copied from their own browser. When present it
+// is extracted instead of fetching, which is how stores behind bot walls (Backcountry's
+// AWS WAF challenge, Amazon) still get a prefilled form: the user's browser already
+// passed the challenge, and we never try to.
+func (s *ImportService) Preview(ctx context.Context, rawURL string, pastedHTML ...string) (ImportPreview, error) {
 	target, err := importer.Canonicalize(rawURL)
 	if err != nil {
 		return ImportPreview{}, translateImportError(err)
@@ -89,7 +94,13 @@ func (s *ImportService) Preview(ctx context.Context, rawURL string) (ImportPrevi
 		}
 	}
 
-	body, fetchErr := s.fetcher.Fetch(ctx, target.CanonicalURL)
+	var body []byte
+	var fetchErr error
+	if len(pastedHTML) > 0 && strings.TrimSpace(pastedHTML[0]) != "" {
+		body = []byte(pastedHTML[0])
+	} else {
+		body, fetchErr = s.fetcher.Fetch(ctx, target.CanonicalURL)
+	}
 	if fetchErr != nil {
 		// A blocked internal address is a hard failure, not a degraded one. Unlike a
 		// retailer bot wall, there is no legitimate import behind a private IP, and
@@ -102,7 +113,7 @@ func (s *ImportService) Preview(ctx context.Context, rawURL string) (ImportPrevi
 		// supplier, the product ID, and the affiliate URL, so the user can fill in the
 		// rest and end up with a correctly linked, correctly deduped item.
 		preview.Status = StatusManual
-		preview.Warning = fmt.Sprintf("Couldn't read the product page (%s). Fill in the details below and the link will still work.", fetchErr)
+		preview.Warning = fmt.Sprintf("Couldn't read the product page (%s). Paste the page source, or fill in the details below and the link will still work.", fetchErr)
 		preview.SuggestedID = s.suggestID(ctx, target)
 		return preview, nil
 	}
@@ -132,7 +143,18 @@ type CommitRequest struct {
 	CostCents   float64 `json:"cost_cents"`
 	Currency    string  `json:"currency"`
 	Consumable  bool    `json:"consumable"`
+	// Extras are the scraped details with no first-class field (material, color, sku,
+	// gtin, ...), echoed back from Draft.Extras after the user has pruned or corrected them.
+	Extras map[string]interface{} `json:"extras,omitempty"`
 }
+
+// Limits on client-supplied extras. They land in a shared catalog row, so an arbitrary
+// client must not be able to stuff it with megabytes of junk.
+const (
+	maxExtras        = 40
+	maxExtraKeyLen   = 64
+	maxExtraValueLen = 500
+)
 
 // ImportResult reports what Commit did. Created is false when the URL turned out to
 // already be in the catalog, which makes the endpoint idempotent.
@@ -193,13 +215,16 @@ func (s *ImportService) Commit(ctx context.Context, req CommitRequest, profileID
 		UpdatedAt: time.Now().UTC(),
 	}
 
-	// Import provenance lives in its own namespace rather than polluting core.
-	provenance := map[string]interface{}{
-		"supplier":    target.SupplierID,
-		"product_id":  target.ProductID,
-		"source_url":  target.CanonicalURL,
-		"imported_at": time.Now().UTC().Format(time.RFC3339),
+	// Import provenance and scraped extras live in their own namespace rather than
+	// polluting core. Provenance is written last so an extra can never spoof it.
+	provenance, err := sanitizeExtras(req.Extras)
+	if err != nil {
+		return ImportResult{}, err
 	}
+	provenance["supplier"] = target.SupplierID
+	provenance["product_id"] = target.ProductID
+	provenance["source_url"] = target.CanonicalURL
+	provenance["imported_at"] = time.Now().UTC().Format(time.RFC3339)
 	if brand := strings.TrimSpace(req.Brand); brand != "" {
 		provenance["brand"] = brand
 	}
@@ -303,6 +328,40 @@ func affiliateURL(supplier core.Supplier, target importer.Target) string {
 		return target.CanonicalURL
 	}
 	return url
+}
+
+// sanitizeExtras keeps only flat scalar extras within size limits. Nested objects are
+// rejected rather than stored because nothing downstream knows how to display them, and
+// blank values are dropped so a cleared field in the preview means "don't save this".
+func sanitizeExtras(in map[string]interface{}) (map[string]interface{}, error) {
+	out := map[string]interface{}{}
+	if len(in) > maxExtras {
+		return nil, fmt.Errorf("%w: at most %d extra details", core.ErrInvalid, maxExtras)
+	}
+	for key, value := range in {
+		key = strings.TrimSpace(key)
+		if key == "" || len(key) > maxExtraKeyLen {
+			return nil, fmt.Errorf("%w: extra detail names must be 1-%d characters", core.ErrInvalid, maxExtraKeyLen)
+		}
+		switch v := value.(type) {
+		case string:
+			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
+			if len(v) > maxExtraValueLen {
+				return nil, fmt.Errorf("%w: extra detail %q is too long", core.ErrInvalid, key)
+			}
+			out[key] = v
+		case float64, bool:
+			out[key] = v
+		case nil:
+			continue
+		default:
+			return nil, fmt.Errorf("%w: extra detail %q must be text, a number, or true/false", core.ErrInvalid, key)
+		}
+	}
+	return out, nil
 }
 
 // missingFieldWarning nudges the user toward the fields that matter most for a loadout.

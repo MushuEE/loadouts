@@ -138,6 +138,8 @@ export interface ImportCommitRequest {
   cost_cents: number;
   currency?: string;
   consumable?: boolean;
+  /** Scraped details with no first-class field (material, color, sku), as edited in the preview. */
+  extras?: Record<string, string>;
 }
 
 export interface ImportResult {
@@ -204,6 +206,8 @@ export interface Loadout {
   forked_from: string;
   cover_image_url: string;
   fork_count: number;
+  /** Slots the owner added to this loadout, on top of its pinned template version. */
+  extra_slots?: SlotDefinition[];
   created_at: string;
   updated_at: string;
 }

@@ -272,9 +272,9 @@ func (s *PostgresStore) ListTemplateVersions(ctx context.Context, templateID str
 
 func (s *PostgresStore) CreateLoadout(ctx context.Context, l core.Loadout) error {
 	query := `INSERT INTO loadouts (id, name, description, owner_profile_id, community_id, template_id,
-	            template_version, visibility, status, forked_from, cover_image_url, fork_count)
+	            template_version, visibility, status, forked_from, cover_image_url, fork_count, extra_slots)
 	          VALUES (:id, :name, :description, :owner_profile_id, :community_id, :template_id,
-	            :template_version, :visibility, :status, :forked_from, :cover_image_url, :fork_count)`
+	            :template_version, :visibility, :status, :forked_from, :cover_image_url, :fork_count, :extra_slots)`
 	_, err := s.db.NamedExecContext(ctx, query, l)
 	return err
 }
@@ -283,7 +283,7 @@ func (s *PostgresStore) UpdateLoadout(ctx context.Context, l core.Loadout) error
 	query := `UPDATE loadouts SET name = :name, description = :description, community_id = :community_id,
 	            template_id = :template_id, template_version = :template_version, visibility = :visibility,
 	            status = :status, cover_image_url = :cover_image_url, fork_count = :fork_count,
-	            updated_at = CURRENT_TIMESTAMP
+	            extra_slots = :extra_slots, updated_at = CURRENT_TIMESTAMP
 	          WHERE id = :id`
 	_, err := s.db.NamedExecContext(ctx, query, l)
 	return err
