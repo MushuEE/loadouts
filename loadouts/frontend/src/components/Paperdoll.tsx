@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ResolvedEntry, SlotDefinition } from '../api/types';
-import { categoryIcon, formatGrams } from '../lib/display';
+import { formatGrams } from '../lib/display';
+import { ItemThumb } from './ItemThumb';
 import {
   columnForTarget,
   isMapped,
@@ -175,7 +176,7 @@ function PaperdollSlot({
             const selected = node.entry.id === selectedEntryId;
             return (
               <div key={node.entry.id} className="group flex items-center gap-1.5">
-                <span className="text-xs shrink-0">{categoryIcon(node.item.category)}</span>
+                <ItemThumb imageUrl={node.item.image_url} category={node.item.category} size="w-6 h-6" iconSize="w-3.5 h-3.5" />
                 <button
                   onClick={() => onSelect(selected ? null : node.entry.id)}
                   className={`text-[11px] truncate flex-1 text-left ${

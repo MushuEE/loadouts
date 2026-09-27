@@ -109,6 +109,9 @@ func (s *InventoryService) GetMergedItem(ctx context.Context, itemID, userID str
 }
 
 func (s *InventoryService) UpdateMetadata(ctx context.Context, userID, itemID string, customImageURL string, overrides core.Metadata, openData core.Metadata) error {
+	if err := core.ValidateImageURL(customImageURL); err != nil {
+		return err
+	}
 	// Validate overrides against schemas
 	for schemaID, metadata := range overrides {
 		schema, err := s.store.GetSchema(ctx, schemaID, "v1")

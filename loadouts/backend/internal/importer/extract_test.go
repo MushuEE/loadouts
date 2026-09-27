@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -222,5 +223,44 @@ func TestExtractKeepsDashedJSONLDName(t *testing.T) {
 	d := Extract([]byte(page), Target{})
 	if d.Name != "Pad Thai - Vegan" {
 		t.Errorf("name = %q, want %q", d.Name, "Pad Thai - Vegan")
+	}
+}
+
+// Every product image is offered as a thumbnail candidate: JSON-LD first (it describes the
+// product), then meta tags, resolved to absolute URLs and deduplicated.
+func TestExtractCollectsCandidateImages(t *testing.T) {
+	page := `<html><head>
+	<meta property="og:image" content="//cdn.example.com/share-card.jpg">
+	<meta name="twitter:image" content="https://cdn.example.com/a.jpg">
+	<script type="application/ld+json">{"@type":"Product","name":"Sack",
+	  "image":["/media/a.jpg", {"@type":"ImageObject","url":"https://cdn.example.com/b.jpg"}],
+	  "hasVariant":[{"image":"https://cdn.example.com/red.jpg"},{"image":"javascript:alert(1)"}]}</script>
+	</head></html>`
+	d := Extract([]byte(page), Target{CanonicalURL: "https://shop.example.com/products/sack"})
+
+	want := []string{
+		"https://shop.example.com/media/a.jpg",
+		"https://cdn.example.com/b.jpg",
+		"https://cdn.example.com/red.jpg",
+		"https://cdn.example.com/share-card.jpg",
+		"https://cdn.example.com/a.jpg",
+	}
+	if strings.Join(d.Images, "\n") != strings.Join(want, "\n") {
+		t.Errorf("images =\n%s\nwant\n%s", strings.Join(d.Images, "\n"), strings.Join(want, "\n"))
+	}
+	if d.ImageURL != want[0] {
+		t.Errorf("imageURL = %q, want the first candidate", d.ImageURL)
+	}
+}
+
+func TestExtractCapsCandidateImages(t *testing.T) {
+	var imgs []string
+	for i := 0; i < 30; i++ {
+		imgs = append(imgs, fmt.Sprintf(`"https://cdn.example.com/%d.jpg"`, i))
+	}
+	page := `<script type="application/ld+json">{"@type":"Product","name":"Tent","image":[` + strings.Join(imgs, ",") + `]}</script>`
+	d := Extract([]byte(page), Target{})
+	if len(d.Images) != maxCandidateImages {
+		t.Errorf("got %d images, want %d", len(d.Images), maxCandidateImages)
 	}
 }

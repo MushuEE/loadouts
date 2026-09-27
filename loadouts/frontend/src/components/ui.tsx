@@ -1,6 +1,7 @@
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import type { LoadoutSummary } from '../api/types';
 import { formatCost, formatKg } from '../lib/display';
+import { CoverImage } from './CoverPicker';
 
 export function Spinner({ label = 'Loading…' }: { label?: string }) {
   return (
@@ -63,7 +64,12 @@ export function LoadoutCard({
 }) {
   const { loadout, stats } = summary;
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-5 hover:border-orange-500/60 transition-colors flex flex-col">
+    <div className="bg-stone-900 border border-stone-800 rounded-xl p-5 hover:border-orange-500/60 transition-colors flex flex-col overflow-hidden">
+      {loadout.cover_image_url && (
+        <button onClick={onOpen} className="-mx-5 -mt-5 mb-4" tabIndex={-1} aria-hidden>
+          <CoverImage url={loadout.cover_image_url} className="h-28" />
+        </button>
+      )}
       <div className="flex items-start justify-between gap-3">
         <button onClick={onOpen} className="text-left">
           <h3 className="font-bold text-stone-100 leading-tight">{loadout.name}</h3>

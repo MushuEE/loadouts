@@ -3,7 +3,8 @@ import { PackagePlus, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Community, Item, ProfileItemLayer, ResolvedItem } from '../api/types';
 import { useAsync } from '../lib/useAsync';
-import { CORE, LAYER_STYLES, categoryIcon, formatCost, formatGrams } from '../lib/display';
+import { CORE, LAYER_STYLES, formatCost, formatGrams } from '../lib/display';
+import { ItemThumb } from '../components/ItemThumb';
 import { Badge, EmptyState, ErrorNote, Spinner } from '../components/ui';
 import { ImportItemModal } from '../components/ImportItemModal';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
@@ -86,7 +87,7 @@ export function GarageView() {
                   className="hover:bg-stone-800/40 cursor-pointer transition-colors"
                 >
                   <td className="p-4 font-medium text-stone-200 flex items-center gap-3">
-                    <span className="text-stone-500">{categoryIcon(item.category, 'w-4 h-4')}</span>
+                    <ItemThumb imageUrl={item.image_url} category={item.category} />
                     {item.name}
                     {item.origin === 'import' && !item.verified && (
                       <Badge
@@ -172,8 +173,16 @@ function ItemInspector({
 
   return (
     <aside className="w-[28rem] border-l border-stone-900 bg-stone-950 overflow-y-auto shrink-0">
-      <div className="p-5 border-b border-stone-900 flex justify-between items-start">
-        <div>
+      <div className="p-5 border-b border-stone-900 flex gap-4 items-start">
+        {resolved.data && (
+          <ItemThumb
+            imageUrl={resolved.data.image_url}
+            category={resolved.data.category}
+            size="w-16 h-16"
+            iconSize="w-7 h-7"
+          />
+        )}
+        <div className="flex-1 min-w-0">
           <h2 className="text-lg font-medium text-white">{resolved.data?.name ?? 'Item'}</h2>
           <div className="text-[11px] text-stone-500 mt-1">{itemId}</div>
         </div>

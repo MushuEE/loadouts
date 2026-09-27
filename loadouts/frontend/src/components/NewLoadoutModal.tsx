@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import type { Community, TemplateDetail } from '../api/types';
 import { useAsync } from '../lib/useAsync';
 import { ErrorNote, Spinner } from './ui';
+import { CoverPicker } from './CoverPicker';
 
 /**
  * Creating a loadout is explicitly "pick a template, then fill it": the template is the
@@ -23,6 +24,7 @@ export function NewLoadoutModal({
   const [description, setDescription] = useState('');
   const [templateId, setTemplateId] = useState('platform-freeform');
   const [communityId, setCommunityId] = useState('');
+  const [cover, setCover] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +43,7 @@ export function NewLoadoutModal({
         description,
         template_id: templateId,
         community_id: communityId,
+        cover_image_url: cover,
       });
       onCreated(detail.loadout.id);
     } catch (err) {
@@ -81,6 +84,13 @@ export function NewLoadoutModal({
               rows={2}
               className="w-full mt-1 bg-black/40 border border-stone-700 rounded-lg p-2.5 text-white focus:border-orange-500 outline-none"
             />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-bold tracking-wider text-stone-500">Cover</label>
+            <div className="mt-2">
+              <CoverPicker value={cover} onChange={setCover} />
+            </div>
           </div>
 
           <div>

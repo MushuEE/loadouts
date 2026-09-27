@@ -46,7 +46,13 @@ export function ItemDetailPanel({ node, onClose }: { node: ResolvedEntry; onClos
 
       <div className="p-4 space-y-5">
         {item.image_url && (
-          <img src={item.image_url} alt="" className="w-full rounded-lg bg-stone-950 object-contain max-h-40" />
+          <img
+            src={item.image_url}
+            alt=""
+            referrerPolicy="no-referrer"
+            onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+            className="w-full rounded-lg bg-stone-100 object-contain max-h-40"
+          />
         )}
 
         {description && <p className="text-xs text-stone-400 leading-relaxed">{description}</p>}

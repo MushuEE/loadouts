@@ -132,7 +132,24 @@ See [ITEM_IMPORT.md](ITEM_IMPORT.md) for the full rationale.
 | Bulk import | Paste many URLs, review as a list. The service API is already shaped for it. |
 | Moderation queue for unverified imports | The `verified` flag and its partial index exist; no review UI. |
 | Amazon Product Advertising API | Needs an approved affiliate account (3 sales in 180 days). The URL path works today without it. |
-| Image rehosting | We hotlink the retailer's image URL. |
+| Image rehosting | We hotlink the retailer's image URL. See "Images" below. |
+
+---
+
+## Images
+
+Thumbnails and loadout covers shipped as *URLs only*: item thumbnails are picked from the
+images a product page advertises (or pasted), and covers come from a preset set in
+`frontend/public/covers/` or a pasted link. Everything below needs us to hold image
+bytes, so image storage is the shared first step.
+
+| Item | Notes |
+| --- | --- |
+| Image storage | Blob store (local disk in dev, bucket in prod) and an `images` table keyed by content hash. Unblocks everything else in this section. |
+| Rehost on import | Copy the chosen thumbnail at commit time so a retailer changing its CDN doesn't break the catalog. Also removes the hotlink referrer/CORS workarounds in `ItemThumb`. |
+| Upload | Own photos for items and covers. Needs size/type limits and re-encoding (strip EXIF, cap dimensions). |
+| Background removal | Makes product shots sit cleanly on slots and, eventually, the paperdoll avatar (#23). Only for images without transparency already. **v0:** an extremely lightweight pass with no model: flood-fill from the edges, removing pixels within a tolerance of the dominant border colour, then feathering the mask edge. This handles the common case of studio shots on white/near-white and costs a few KB of code. It can run client-side in a canvas at import time or in pure Go at rehost time. Skip it when the border isn't near-uniform. **v1:** a small segmentation model (U2-Net-p / MODNet / RMBG class, via onnxruntime-web or a sidecar) for lifestyle shots, behind a toggle. Always keep the original and let the user revert. Depends on *Image storage*, because the output is a new PNG we have to host. |
+| Community cover presets | Covers are a hard-coded list in `frontend/src/lib/covers.ts`; communities could ship their own. |
 
 ---
 

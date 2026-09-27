@@ -3,7 +3,8 @@ import { PackagePlus, Search, X } from 'lucide-react';
 import { api } from '../api/client';
 import type { Item, SlotDefinition } from '../api/types';
 import { useAsync } from '../lib/useAsync';
-import { CORE, categoryIcon, formatCost, formatGrams } from '../lib/display';
+import { CORE, formatCost, formatGrams } from '../lib/display';
+import { ItemThumb } from './ItemThumb';
 import { ErrorNote, Spinner } from './ui';
 import { ImportItemModal } from './ImportItemModal';
 
@@ -95,7 +96,7 @@ export function ItemPickerModal({
               className="w-full text-left p-3 rounded-lg hover:bg-stone-800 border border-transparent hover:border-stone-700 flex items-center justify-between group"
             >
               <span className="flex items-center gap-3">
-                <span className="p-2 bg-stone-800 rounded-md text-stone-400">{categoryIcon(item.category, 'w-4 h-4')}</span>
+                <ItemThumb imageUrl={item.image_url} category={item.category} size="w-10 h-10" />
                 <span>
                   <span className="block text-stone-200 text-sm group-hover:text-orange-400">{item.name}</span>
                   <span className="block text-[10px] uppercase tracking-wider text-stone-600">{item.category}</span>

@@ -4,6 +4,8 @@ import { api, ApiError } from '../api/client';
 import type { ImportDraft, ImportPreview, Item } from '../api/types';
 import { formatCost, formatGrams } from '../lib/display';
 import { ErrorNote } from './ui';
+import { ItemThumb } from './ItemThumb';
+import { ThumbnailPicker } from './ThumbnailPicker';
 
 const CATEGORIES = [
   'pack', 'shelter', 'sleep', 'kitchen', 'fuel', 'water', 'shoes',
@@ -261,14 +263,13 @@ export function ImportItemModal({
               </div>
 
               <div className="flex gap-3">
-                {form.imageUrl && (
-                  <img
-                    src={form.imageUrl}
-                    alt=""
-                    className="w-20 h-20 object-cover rounded-lg border border-stone-800 bg-black/40"
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                  />
-                )}
+                <ItemThumb
+                  imageUrl={form.imageUrl}
+                  category={form.category}
+                  size="w-20 h-20"
+                  iconSize="w-7 h-7"
+                  className="rounded-lg border border-stone-800"
+                />
                 <div className="flex-1 space-y-3">
                   <Field label="Name" required>
                     <input
@@ -318,6 +319,17 @@ export function ImportItemModal({
                   />
                 </Field>
               </div>
+
+              <Field
+                label="Thumbnail"
+                hint={(preview.draft.images ?? []).length === 0 ? 'no images found on page' : undefined}
+              >
+                <ThumbnailPicker
+                  candidates={preview.draft.images ?? []}
+                  value={form.imageUrl}
+                  onChange={(imageUrl) => setForm({ ...form, imageUrl })}
+                />
+              </Field>
 
               <Field label="Description">
                 <textarea
