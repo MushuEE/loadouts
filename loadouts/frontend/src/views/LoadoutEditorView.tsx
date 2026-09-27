@@ -4,6 +4,7 @@ import {
   ChevronRight,
   GitFork,
   Globe,
+  Image as ImageIcon,
   Lock,
   Maximize2,
   Plus,
@@ -15,12 +16,14 @@ import type { LoadoutDetail, LoadoutEntry, ResolvedEntry, SlotDefinition, Visibi
 import { useSession } from '../session/SessionContext';
 import { useAsync } from '../lib/useAsync';
 import { categoryIcon, formatCost, formatGrams, formatKg } from '../lib/display';
+import { ItemThumb } from '../components/ItemThumb';
 import { Badge, ErrorNote, Spinner } from '../components/ui';
 import { FavoritePanel } from '../components/FavoritePanel';
 import { ItemPickerModal } from '../components/ItemPickerModal';
 import { ItemDetailPanel } from '../components/ItemDetailPanel';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 import { Paperdoll } from '../components/Paperdoll';
+import { CoverImage, CoverPicker } from '../components/CoverPicker';
 import { isMapped, targetForSlot } from '../paperdoll/archetypes';
 
 /** Flatten the server's nested entry tree back into the flat list the API expects on write. */
@@ -74,6 +77,7 @@ export function LoadoutEditorView({
   // so a reload after an edit re-resolves it instead of showing a stale copy.
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [addingSlot, setAddingSlot] = useState(false);
+  const [editingCover, setEditingCover] = useState(false);
 
   const data = detail.data;
   const isOwner = !!profile && data?.loadout.owner_profile_id === profile.id;
@@ -173,6 +177,20 @@ export function LoadoutEditorView({
     }
   }
 
+  async function setCover(url: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.updateLoadout(loadoutId, { cover_image_url: url });
+      setEditingCover(false);
+      detail.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /**
    * Define a slot on this loadout alone. The template is untouched, so this does not change
    * what anyone else's copy looks like - it is the cheap version of "I need somewhere to put
@@ -248,6 +266,7 @@ export function LoadoutEditorView({
     <div className="flex-1 flex overflow-hidden">
       {/* Stats rail */}
       <aside className="w-72 bg-stone-900 border-r border-stone-800 flex flex-col shrink-0 overflow-y-auto">
+        <CoverImage url={data.loadout.cover_image_url} className="h-32 shrink-0" />
         <div className="p-6 border-b border-stone-800">
           <button onClick={onBack} className="text-xs text-stone-500 hover:text-white mb-3">
             ← All loadouts
@@ -256,6 +275,20 @@ export function LoadoutEditorView({
           <div className="text-[11px] text-stone-500 mt-1">
             @{data.owner.handle} · {data.template.template.name} v{data.loadout.template_version}
           </div>
+          {isOwner && (
+            <button
+              onClick={() => setEditingCover(!editingCover)}
+              className="mt-2 text-[11px] text-stone-500 hover:text-orange-400 flex items-center gap-1"
+            >
+              <ImageIcon className="w-3 h-3" />
+              {editingCover ? 'Done' : data.loadout.cover_image_url ? 'Change cover' : 'Add a cover'}
+            </button>
+          )}
+          {editingCover && (
+            <div className="mt-3">
+              <CoverPicker value={data.loadout.cover_image_url} onChange={setCover} columns="grid-cols-3" />
+            </div>
+          )}
         </div>
 
         <div className="p-6 space-y-4">
@@ -626,7 +659,7 @@ function SlotCell({
                 className={`group rounded-lg -mx-1 px-1 ${selected ? 'bg-sky-500/10 ring-1 ring-sky-500/40' : ''}`}
               >
                 <div className="flex items-start gap-2">
-                  <span className="text-stone-400 mt-0.5">{categoryIcon(node.item.category, 'w-4 h-4')}</span>
+                  <ItemThumb imageUrl={node.item.image_url} category={node.item.category} size="w-10 h-10" />
                   {/* Clicking the item is inspect, not edit. A second click closes, so the
                       rail is a toggle rather than something you have to go dismiss. */}
                   <button

@@ -13,6 +13,11 @@ type Draft struct {
 	Brand       string `json:"brand"`
 	Description string `json:"description"`
 	ImageURL    string `json:"image_url"`
+	// Images is every distinct product image the page offered, absolute and in page
+	// order, so the user can choose the thumbnail rather than live with whichever one
+	// the retailer listed first (often a lifestyle shot, not the product). ImageURL is
+	// the default pick and is always Images[0] when Images is non-empty.
+	Images []string `json:"images,omitempty"`
 	// Category is a guess mapped onto the template slot vocabulary; may be "".
 	Category string `json:"category"`
 

@@ -104,6 +104,8 @@ export interface ImportDraft {
   brand: string;
   description: string;
   image_url: string;
+  /** Every product image found on the page, absolute, image_url first. */
+  images?: string[];
   category: string;
   weight_g: number;
   has_weight: boolean;

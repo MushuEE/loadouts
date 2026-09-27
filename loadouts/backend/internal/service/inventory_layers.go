@@ -87,6 +87,9 @@ func (s *InventoryService) SetProfileLayer(ctx context.Context, layer core.Profi
 	if _, err := s.store.GetItem(ctx, layer.ItemID); err != nil {
 		return core.ProfileItemLayer{}, fmt.Errorf("%w: item %s", core.ErrNotFound, layer.ItemID)
 	}
+	if err := core.ValidateImageURL(layer.CustomImageURL); err != nil {
+		return core.ProfileItemLayer{}, err
+	}
 
 	for schemaID, metadata := range layer.PublicMetadata {
 		schema, err := s.store.GetSchema(ctx, schemaID, "v1")

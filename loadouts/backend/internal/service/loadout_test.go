@@ -296,3 +296,31 @@ func TestInventory_ResolveItemAppliesCommunityLayer(t *testing.T) {
 		t.Errorf("community layer leaked outside its scope: %+v", outOfScope.Metadata)
 	}
 }
+
+// A cover is rendered into other people's browsers, so only http(s) URLs and the app's own
+// preset paths are accepted.
+func TestLoadout_CoverImageMustBeSafe(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	owner := h.profile(t, "owner")
+
+	if _, err := h.loadouts.Create(ctx, owner.ID, CreateLoadoutRequest{
+		Name: "Bad", CoverImageURL: "javascript:alert(1)",
+	}); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("create with javascript: cover = %v, want ErrInvalid", err)
+	}
+
+	detail, err := h.loadouts.Create(ctx, owner.ID, CreateLoadoutRequest{Name: "Weekender", CoverImageURL: "/covers/alpine.svg"})
+	if err != nil {
+		t.Fatalf("create with preset cover: %v", err)
+	}
+	bad := "data:image/svg+xml,<svg onload=alert(1)>"
+	if _, err := h.loadouts.Update(ctx, owner.ID, detail.Loadout.ID, UpdateLoadoutRequest{CoverImageURL: &bad}); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("update with data: cover = %v, want ErrInvalid", err)
+	}
+	good := "https://images.example.com/trip.jpg"
+	updated, err := h.loadouts.Update(ctx, owner.ID, detail.Loadout.ID, UpdateLoadoutRequest{CoverImageURL: &good})
+	if err != nil || updated.Loadout.CoverImageURL != good {
+		t.Errorf("update with https cover = %q, %v", updated.Loadout.CoverImageURL, err)
+	}
+}

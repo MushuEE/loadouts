@@ -215,6 +215,9 @@ func TestImportCommitRequiresProfileAndName(t *testing.T) {
 	if _, err := svc.Commit(ctx, CommitRequest{URL: url, Name: "Tent", WeightG: -5}, profile.ID); !errors.Is(err, core.ErrInvalid) {
 		t.Errorf("negative weight error = %v, want ErrInvalid", err)
 	}
+	if _, err := svc.Commit(ctx, CommitRequest{URL: url, Name: "Tent", ImageURL: "javascript:alert(1)"}, profile.ID); !errors.Is(err, core.ErrInvalid) {
+		t.Errorf("javascript: thumbnail error = %v, want ErrInvalid", err)
+	}
 	if _, err := svc.Commit(ctx, CommitRequest{URL: "https://www.rei.com/search?q=tent", Name: "Tent"}, profile.ID); !errors.Is(err, core.ErrInvalid) {
 		t.Errorf("non-product URL error = %v, want ErrInvalid", err)
 	}

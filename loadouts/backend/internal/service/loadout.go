@@ -44,6 +44,9 @@ func (s *LoadoutService) Create(ctx context.Context, actorProfileID string, req 
 	if strings.TrimSpace(req.Name) == "" {
 		return core.LoadoutDetail{}, fmt.Errorf("%w: name is required", core.ErrInvalid)
 	}
+	if err := core.ValidateImageURL(req.CoverImageURL); err != nil {
+		return core.LoadoutDetail{}, err
+	}
 
 	templateID := req.TemplateID
 	if templateID == "" {
@@ -118,6 +121,9 @@ func (s *LoadoutService) Update(ctx context.Context, actorProfileID, loadoutID s
 		loadout.Visibility = *req.Visibility
 	}
 	if req.CoverImageURL != nil {
+		if err := core.ValidateImageURL(*req.CoverImageURL); err != nil {
+			return core.LoadoutDetail{}, err
+		}
 		loadout.CoverImageURL = *req.CoverImageURL
 	}
 	if req.CommunityID != nil {

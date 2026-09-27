@@ -182,6 +182,10 @@ func (s *ImportService) Commit(ctx context.Context, req CommitRequest, profileID
 	if req.WeightG < 0 || req.CostCents < 0 {
 		return ImportResult{}, fmt.Errorf("%w: weight and cost cannot be negative", core.ErrInvalid)
 	}
+	req.ImageURL = strings.TrimSpace(req.ImageURL)
+	if err := core.ValidateImageURL(req.ImageURL); err != nil {
+		return ImportResult{}, err
+	}
 
 	// Idempotency: a double-clicked confirm button must not create two items.
 	if existingID, err := s.store.GetItemBySource(ctx, target.SupplierID, target.ProductID); err == nil && existingID != "" {

@@ -3,6 +3,7 @@ package importer
 import (
 	"encoding/json"
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -52,6 +53,13 @@ func Extract(body []byte, target Target) Draft {
 				d.Source = ViaTitle
 			}
 		}
+	}
+
+	d.Images = candidateImages(target.CanonicalURL, d.Images, metas)
+	if len(d.Images) > 0 {
+		d.ImageURL = d.Images[0]
+	} else {
+		d.ImageURL = ""
 	}
 
 	// Retailers append their own name to the title ("Copper Spur UL2 | REI Co-op").
@@ -137,8 +145,14 @@ func applyProductNode(p map[string]interface{}, d *Draft) {
 	if desc := str(p["description"]); desc != "" {
 		d.Description = cleanTitle(desc)
 	}
-	if img := firstImage(p["image"]); img != "" {
-		d.ImageURL = img
+	d.Images = appendImages(d.Images, p["image"])
+	// Variants often carry their own photos (one per colorway).
+	if variants, ok := p["hasVariant"].([]interface{}); ok {
+		for _, v := range variants {
+			if vm, ok := v.(map[string]interface{}); ok {
+				d.Images = appendImages(d.Images, vm["image"])
+			}
+		}
 	}
 	if brand := brandName(p["brand"]); brand != "" {
 		d.Brand = brand
@@ -256,7 +270,6 @@ func fillFromMeta(m map[string]string, d *Draft) bool {
 	}
 	pick(&d.Name, "og:title", "twitter:title", "product:title")
 	pick(&d.Description, "og:description", "twitter:description", "description")
-	pick(&d.ImageURL, "og:image", "og:image:secure_url", "twitter:image", "image")
 	pick(&d.Brand, "product:brand", "og:brand", "brand")
 
 	if !d.HasPrice {
@@ -313,25 +326,71 @@ func formatFloat(f float64) string {
 	return string(b)
 }
 
-func firstImage(v interface{}) string {
+// appendImages collects image URLs from a schema.org image value, which may be a URL, an
+// ImageObject, or an array of either.
+func appendImages(out []string, v interface{}) []string {
 	switch t := v.(type) {
 	case string:
-		return t
+		if s := strings.TrimSpace(t); s != "" {
+			out = append(out, s)
+		}
 	case []interface{}:
 		for _, e := range t {
-			if s := firstImage(e); s != "" {
-				return s
-			}
+			out = appendImages(out, e)
 		}
 	case map[string]interface{}:
 		// An ImageObject wraps the URL.
 		for _, k := range []string{"url", "contentUrl"} {
 			if s := str(t[k]); s != "" {
-				return s
+				return append(out, s)
 			}
 		}
 	}
-	return ""
+	return out
+}
+
+// maxCandidateImages bounds the thumbnail picker. Retailers with a 40-photo gallery would
+// otherwise bury the product shot, and the first dozen always include it.
+const maxCandidateImages = 12
+
+// candidateImages merges JSON-LD images with the meta-tag ones, resolves them against the
+// page URL, and keeps only distinct http(s) URLs. JSON-LD comes first because it describes
+// the product itself; og:image is frequently a share card with the store's logo on it.
+func candidateImages(pageURL string, fromJSONLD []string, metas map[string]string) []string {
+	raw := append([]string(nil), fromJSONLD...)
+	for _, k := range []string{"og:image", "og:image:secure_url", "twitter:image", "image"} {
+		if v := strings.TrimSpace(metas[k]); v != "" {
+			raw = append(raw, v)
+		}
+	}
+
+	base, _ := url.Parse(pageURL)
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range raw {
+		u, err := url.Parse(html.UnescapeString(r))
+		if err != nil {
+			continue
+		}
+		// Retailers routinely emit protocol-relative ("//cdn...") and root-relative
+		// ("/media/...") image paths, which are useless once stored away from the page.
+		if base != nil {
+			u = base.ResolveReference(u)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+			continue
+		}
+		s := u.String()
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+		if len(out) == maxCandidateImages {
+			break
+		}
+	}
+	return out
 }
 
 func brandName(v interface{}) string {

@@ -171,6 +171,7 @@ export const api = {
     template_id?: string;
     community_id?: string;
     visibility?: Visibility;
+    cover_image_url?: string;
   }) => request<LoadoutDetail>('/loadouts', { method: 'POST', body: JSON.stringify(body) }),
   updateLoadout: (id: string, body: Record<string, unknown>) =>
     request<LoadoutDetail>(`/loadouts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
