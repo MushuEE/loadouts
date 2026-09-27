@@ -103,6 +103,9 @@ type UpdateLoadoutRequest struct {
 	Visibility    *core.Visibility `json:"visibility"`
 	CommunityID   *string          `json:"community_id"`
 	CoverImageURL *string          `json:"cover_image_url"`
+	// TemplateVersion moves the loadout to another version of its template. Only allowed
+	// when every root entry's slot still exists there; anything else needs a migration.
+	TemplateVersion *int `json:"template_version"`
 }
 
 func (s *LoadoutService) Update(ctx context.Context, actorProfileID, loadoutID string, req UpdateLoadoutRequest) (core.LoadoutDetail, error) {
@@ -134,12 +137,47 @@ func (s *LoadoutService) Update(ctx context.Context, actorProfileID, loadoutID s
 		}
 		loadout.CommunityID = *req.CommunityID
 	}
+	if req.TemplateVersion != nil && *req.TemplateVersion != loadout.TemplateVersion {
+		if err := s.checkVersionMove(ctx, loadout, *req.TemplateVersion); err != nil {
+			return core.LoadoutDetail{}, err
+		}
+		loadout.TemplateVersion = *req.TemplateVersion
+	}
 
 	loadout.UpdatedAt = time.Now().UTC()
 	if err := s.store.UpdateLoadout(ctx, loadout); err != nil {
 		return core.LoadoutDetail{}, err
 	}
 	return s.Detail(ctx, loadout.ID, actorProfileID)
+}
+
+// checkVersionMove allows moving to another template version only when it cannot strand
+// gear: every root-level entry must land in a slot the target version (plus this loadout's
+// custom slots) still defines. That covers the common case of a new version that only
+// adds a paperdoll or slots. Anything that removes a slot in use is a migration, which
+// does not exist yet.
+func (s *LoadoutService) checkVersionMove(ctx context.Context, loadout core.Loadout, version int) error {
+	target, err := s.templates.Detail(ctx, loadout.TemplateID, version)
+	if err != nil {
+		return err
+	}
+	if loadout.TemplateID == core.FreeformTemplateID {
+		return nil
+	}
+	slots := loadout.EffectiveSlots(target.Version)
+	entries, err := s.store.ListLoadoutEntries(ctx, loadout.ID)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.ParentEntryID != "" {
+			continue
+		}
+		if _, ok := slots.ByID(e.SlotID); !ok {
+			return fmt.Errorf("%w: v%d has no slot %q, which this loadout uses", core.ErrInvalid, version, e.SlotID)
+		}
+	}
+	return nil
 }
 
 // ReplaceEntries swaps the whole entry tree. The editor always owns the full state, so a

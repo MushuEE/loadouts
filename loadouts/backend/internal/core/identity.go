@@ -15,12 +15,15 @@ type User struct {
 // but a User may keep several Profiles to separate distinct hobbies or personas
 // (e.g. "gearhead" for backpacking and "fitcheck" for streetwear).
 type Profile struct {
-	ID          string    `json:"id" db:"id"`
-	UserID      string    `json:"user_id" db:"user_id"`
-	Handle      string    `json:"handle" db:"handle"`
-	DisplayName string    `json:"display_name" db:"display_name"`
-	Bio         string    `json:"bio" db:"bio"`
-	AvatarURL   string    `json:"avatar_url" db:"avatar_url"`
-	IsSponsor   bool      `json:"is_sponsor" db:"is_sponsor"`
+	ID          string `json:"id" db:"id"`
+	UserID      string `json:"user_id" db:"user_id"`
+	Handle      string `json:"handle" db:"handle"`
+	DisplayName string `json:"display_name" db:"display_name"`
+	Bio         string `json:"bio" db:"bio"`
+	AvatarURL   string `json:"avatar_url" db:"avatar_url"`
+	IsSponsor   bool   `json:"is_sponsor" db:"is_sponsor"`
+	// IsSiteAdmin may author figure paperdolls on any template. Granted out of band (the
+	// seed, or the database); the API never lets a client set it.
+	IsSiteAdmin bool      `json:"is_site_admin" db:"is_site_admin"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }

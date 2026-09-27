@@ -26,6 +26,7 @@ func (h *TemplateHandler) Routes() chi.Router {
 		r.Get("/", h.Get)
 		r.Get("/versions", h.ListVersions)
 		r.Post("/versions", h.PublishVersion)
+		r.Put("/paperdoll", h.PublishPaperdoll)
 	})
 	return r
 }
@@ -118,6 +119,25 @@ func (h *TemplateHandler) PublishVersion(w http.ResponseWriter, r *http.Request)
 	}
 
 	detail, err := h.templates.PublishVersion(r.Context(), auth.ProfileID(r.Context()), chi.URLParam(r, "templateID"), req.Slots, req.Changelog)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, detail)
+}
+
+// PublishPaperdoll appends a version with a new paperdoll layout (or none, if null).
+func (h *TemplateHandler) PublishPaperdoll(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Paperdoll *core.PaperdollLayout `json:"paperdoll"`
+		Changelog string                `json:"changelog"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	detail, err := h.templates.PublishPaperdoll(r.Context(), auth.ProfileID(r.Context()), chi.URLParam(r, "templateID"), req.Paperdoll, req.Changelog)
 	if err != nil {
 		writeError(w, err)
 		return

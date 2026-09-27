@@ -12,6 +12,7 @@ import type {
   LoadoutDetail,
   LoadoutEntry,
   LoadoutSummary,
+  PaperdollLayout,
   Profile,
   ProfileItemLayer,
   Plugin,
@@ -159,6 +160,9 @@ export const api = {
   }) => request<TemplateDetail>('/templates', { method: 'POST', body: JSON.stringify(body) }),
   publishTemplateVersion: (id: string, body: { slots: SlotDefinition[]; changelog?: string }) =>
     request<TemplateDetail>(`/templates/${id}/versions`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Publishes a new version with the same slots and this layout. `null` removes the layout. */
+  publishPaperdoll: (id: string, body: { paperdoll: PaperdollLayout | null; changelog?: string }) =>
+    request<TemplateDetail>(`/templates/${id}/paperdoll`, { method: 'PUT', body: JSON.stringify(body) }),
 
   // --- Loadouts ---
   myLoadouts: () => request<LoadoutSummary[]>('/loadouts'),

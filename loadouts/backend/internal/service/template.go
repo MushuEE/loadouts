@@ -111,11 +111,56 @@ func (s *TemplateService) PublishVersion(ctx context.Context, actorProfileID, te
 		return core.TemplateDetail{}, err
 	}
 
+	// The paperdoll carries forward, minus bindings for slots this version removes. Changing
+	// the slots should not silently throw away an admin's painting.
+	var paperdoll *core.PaperdollLayout
+	if prev, err := s.store.GetTemplateVersion(ctx, tmpl.ID, tmpl.LatestVersion); err == nil {
+		paperdoll = prev.Paperdoll.PruneBindings(slots)
+	}
+
+	return s.appendVersion(ctx, tmpl, slots, paperdoll, defaultString(changelog, fmt.Sprintf("Version %d", tmpl.LatestVersion+1)))
+}
+
+// PublishPaperdoll appends a version with the latest version's slots and a new paperdoll
+// layout. A nil layout removes the paperdoll, falling back to the inferred figure.
+//
+// Figures are site-admin only: their silhouettes are shared artwork and painting them well
+// is the part worth gating for now. Tile-only layouts need nothing beyond edit rights.
+func (s *TemplateService) PublishPaperdoll(ctx context.Context, actorProfileID, templateID string, layout *core.PaperdollLayout, changelog string) (core.TemplateDetail, error) {
+	tmpl, err := s.store.GetTemplate(ctx, templateID)
+	if err != nil {
+		return core.TemplateDetail{}, fmt.Errorf("%w: template %s", core.ErrNotFound, templateID)
+	}
+	if err := s.requireEditor(ctx, tmpl, actorProfileID); err != nil {
+		return core.TemplateDetail{}, err
+	}
+	if layout.HasFigures() && !s.isSiteAdmin(ctx, actorProfileID) {
+		return core.TemplateDetail{}, fmt.Errorf("%w: only site admins can place figures on a paperdoll", core.ErrForbidden)
+	}
+
+	latest, err := s.store.GetTemplateVersion(ctx, tmpl.ID, tmpl.LatestVersion)
+	if err != nil {
+		return core.TemplateDetail{}, fmt.Errorf("%w: template %s v%d", core.ErrNotFound, tmpl.ID, tmpl.LatestVersion)
+	}
+	if err := core.ValidatePaperdoll(layout, latest.Slots); err != nil {
+		return core.TemplateDetail{}, err
+	}
+
+	fallback := "Update paperdoll"
+	if layout == nil {
+		fallback = "Remove paperdoll"
+	}
+	return s.appendVersion(ctx, tmpl, latest.Slots, layout, defaultString(changelog, fallback))
+}
+
+// appendVersion writes the next immutable version and advances LatestVersion.
+func (s *TemplateService) appendVersion(ctx context.Context, tmpl core.Template, slots core.SlotList, paperdoll *core.PaperdollLayout, changelog string) (core.TemplateDetail, error) {
 	next := core.TemplateVersion{
 		TemplateID: tmpl.ID,
 		Version:    tmpl.LatestVersion + 1,
 		Slots:      slots,
-		Changelog:  defaultString(changelog, fmt.Sprintf("Version %d", tmpl.LatestVersion+1)),
+		Changelog:  changelog,
+		Paperdoll:  paperdoll,
 	}
 	if err := s.store.CreateTemplateVersion(ctx, next); err != nil {
 		return core.TemplateDetail{}, err
@@ -129,8 +174,20 @@ func (s *TemplateService) PublishVersion(ctx context.Context, actorProfileID, te
 	return s.Detail(ctx, tmpl.ID, next.Version)
 }
 
-// requireEditor allows the owning profile, or an admin of the owning community.
+func (s *TemplateService) isSiteAdmin(ctx context.Context, profileID string) bool {
+	if profileID == "" {
+		return false
+	}
+	p, err := s.store.GetProfile(ctx, profileID)
+	return err == nil && p.IsSiteAdmin
+}
+
+// requireEditor allows the owning profile, an admin of the owning community, or a site
+// admin. Platform templates stay immutable for everyone.
 func (s *TemplateService) requireEditor(ctx context.Context, tmpl core.Template, actorProfileID string) error {
+	if tmpl.OwnerType != core.OwnerPlatform && s.isSiteAdmin(ctx, actorProfileID) {
+		return nil
+	}
 	switch tmpl.OwnerType {
 	case core.OwnerProfile:
 		if tmpl.OwnerID != actorProfileID {
