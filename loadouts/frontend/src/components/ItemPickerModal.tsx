@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
 import { PackagePlus, Search, X } from 'lucide-react';
 import { api } from '../api/client';
-import type { Item, SlotDefinition } from '../api/types';
+import type { GearResult, GearSearch, SlotDefinition } from '../api/types';
 import { useAsync } from '../lib/useAsync';
+import { useGearScope } from '../lib/gearScope';
+import { ScopeToggle } from './ScopeToggle';
+import { ResultTags, normalizeTag } from './GearSearchControls';
 import { CORE, formatCost, formatGrams } from '../lib/display';
 import { ItemThumb } from './ItemThumb';
 import { ErrorNote, Spinner } from './ui';
@@ -11,6 +14,9 @@ import { ImportItemModal } from './ImportItemModal';
 /**
  * Item picker constrained by the slot's accepted categories, so the template's structure
  * guides the user instead of only failing validation after the fact.
+ *
+ * It follows the app-wide scope: "My gear" first is usually what you want when packing,
+ * with Everyone one click away. Typing #tag narrows by tag, in the scope's sense.
  */
 export function ItemPickerModal({
   slot,
@@ -23,17 +29,22 @@ export function ItemPickerModal({
 }) {
   const [query, setQuery] = useState('');
   const [importing, setImporting] = useState(false);
-  const items = useAsync<Item[]>(() => api.listItems(), []);
+  const [scope, setScope] = useGearScope();
+  const items = useAsync<GearSearch>(() => api.searchGear({ scope }), [scope]);
 
   const accepted = slot.accepted_categories ?? [];
   const universal = accepted.length === 0 || accepted.includes('universal');
 
   const visible = useMemo(() => {
-    const list = items.data ?? [];
-    return list
-      .filter((item) => universal || accepted.includes(item.category))
-      .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()));
-  }, [items.data, accepted, universal, query]);
+    const words = query.split(/\s+/).filter(Boolean);
+    const tags = words.filter((w) => w.startsWith('#')).map(normalizeTag).filter(Boolean);
+    const text = words.filter((w) => !w.startsWith('#')).join(' ').toLowerCase();
+    const tagsOf = (r: GearResult) => (scope === 'mine' ? r.my_tags : r.tags.map((t) => t.tag));
+    return (items.data?.results ?? [])
+      .filter(({ item }) => universal || accepted.includes(item.category))
+      .filter(({ item }) => item.name.toLowerCase().includes(text))
+      .filter((r) => tags.every((t) => tagsOf(r).some((have) => have.startsWith(t))));
+  }, [items.data, accepted, universal, query, scope]);
 
   // Importing mid-build is the common case: you're filling a slot and realize the piece
   // of gear isn't in the catalog yet. Sending the user off to the Garage would lose the
@@ -58,9 +69,12 @@ export function ItemPickerModal({
                 Slot: {slot.name} · accepts {universal ? 'anything' : accepted.join(', ')}
               </p>
             </div>
-            <button onClick={onClose} className="p-1 text-stone-500 hover:text-white">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <ScopeToggle size="sm" />
+              <button onClick={onClose} className="p-1 text-stone-500 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div className="flex items-center bg-black/40 border border-stone-800 rounded-lg px-3 mt-3 focus-within:border-orange-500">
             <Search className="w-4 h-4 text-stone-500" />
@@ -68,18 +82,25 @@ export function ItemPickerModal({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter…"
+              placeholder="Filter, or #tag…"
               className="bg-transparent px-3 py-2 text-sm text-white outline-none flex-1 placeholder:text-stone-600"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          {items.loading && <Spinner />}
+          {items.loading && !items.data && <Spinner />}
           {items.error && <div className="p-2"><ErrorNote message={items.error} /></div>}
           {!items.loading && visible.length === 0 && (
             <div className="py-12 text-center">
-              <p className="text-stone-600 text-sm">No compatible gear in the catalog.</p>
+              <p className="text-stone-600 text-sm">
+                {scope === 'mine' ? 'None of your gear fits here.' : 'No compatible gear in the catalog.'}
+              </p>
+              {scope === 'mine' && (
+                <button onClick={() => setScope('everyone')} className="mt-2 block mx-auto text-xs text-orange-400 hover:text-orange-300">
+                  Search everyone's gear
+                </button>
+              )}
               <button
                 onClick={() => setImporting(true)}
                 className="mt-3 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg inline-flex items-center gap-2"
@@ -89,7 +110,7 @@ export function ItemPickerModal({
               </button>
             </div>
           )}
-          {visible.map((item) => (
+          {visible.map(({ item, ...r }) => (
             <button
               key={item.id}
               onClick={() => onSelect(item.id)}
@@ -99,7 +120,13 @@ export function ItemPickerModal({
                 <ItemThumb imageUrl={item.image_url} category={item.category} size="w-10 h-10" />
                 <span>
                   <span className="block text-stone-200 text-sm group-hover:text-orange-400">{item.name}</span>
-                  <span className="block text-[10px] uppercase tracking-wider text-stone-600">{item.category}</span>
+                  <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-stone-600">
+                    {item.category}
+                    {r.mine && scope === 'everyone' && <span className="normal-case tracking-normal text-orange-400">· yours</span>}
+                  </span>
+                  <span className="block mt-1">
+                    <ResultTags result={{ item, ...r }} scope={scope} max={3} />
+                  </span>
                 </span>
               </span>
               <span className="text-right font-mono text-xs text-stone-400">

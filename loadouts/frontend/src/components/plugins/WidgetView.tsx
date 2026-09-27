@@ -37,7 +37,7 @@ export function WidgetView({ widget }: { widget: WidgetRender }) {
 function StatGrid({ widget }: { widget: WidgetRender }) {
   const stats = widget.stats ?? [];
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
       {stats.map((stat) => (
         <div key={stat.label} className="bg-stone-900/60 rounded-lg p-3" title={stat.help}>
           <div className="text-[11px] uppercase tracking-wide text-stone-500">{stat.label}</div>

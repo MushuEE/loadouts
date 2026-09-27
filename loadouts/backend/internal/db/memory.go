@@ -25,6 +25,7 @@ type MemoryStore struct {
 	memberships  map[string]core.CommunityMembership // "communityID:profileID"
 	commLayers   map[string]core.CommunityItemLayer  // "communityID:itemID"
 	profLayers   map[string]core.ProfileItemLayer    // "profileID:itemID"
+	itemTags     map[string][]string                 // "profileID:itemID"
 	templates    map[string]core.Template
 	tmplVersions map[string]core.TemplateVersion // "templateID:version"
 	loadouts     map[string]core.Loadout
@@ -51,6 +52,7 @@ func NewMemoryStore() *MemoryStore {
 		memberships:  make(map[string]core.CommunityMembership),
 		commLayers:   make(map[string]core.CommunityItemLayer),
 		profLayers:   make(map[string]core.ProfileItemLayer),
+		itemTags:     make(map[string][]string),
 		templates:    make(map[string]core.Template),
 		tmplVersions: make(map[string]core.TemplateVersion),
 		loadouts:     make(map[string]core.Loadout),
@@ -468,6 +470,140 @@ func (s *MemoryStore) GetProfileItemLayer(ctx context.Context, profileID, itemID
 		return nil, fmt.Errorf("profile item layer not found")
 	}
 	return &l, nil
+}
+
+// --- Tags ---
+
+func (s *MemoryStore) SetProfileItemTags(ctx context.Context, profileID, itemID string, tags []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(tags) == 0 {
+		delete(s.itemTags, key(profileID, itemID))
+		return nil
+	}
+	s.itemTags[key(profileID, itemID)] = append([]string(nil), tags...)
+	return nil
+}
+
+func (s *MemoryStore) GetProfileItemTags(ctx context.Context, profileID, itemID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string(nil), s.itemTags[key(profileID, itemID)]...), nil
+}
+
+func (s *MemoryStore) CountItemTags(ctx context.Context, itemID string) ([]core.TagCount, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	counts := map[string]int{}
+	for k, tags := range s.itemTags {
+		if strings.HasSuffix(k, ":"+itemID) {
+			for _, t := range tags {
+				counts[t]++
+			}
+		}
+	}
+	return core.SortTagCounts(counts, 0), nil
+}
+
+func (s *MemoryStore) CountTags(ctx context.Context, prefix string, limit int) ([]core.TagCount, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// Distinct profiles per tag: one person tagging forty items is still one vote.
+	users := map[string]map[string]bool{}
+	for k, tags := range s.itemTags {
+		profileID := k[:strings.Index(k, ":")]
+		for _, t := range tags {
+			if !strings.HasPrefix(t, prefix) {
+				continue
+			}
+			if users[t] == nil {
+				users[t] = map[string]bool{}
+			}
+			users[t][profileID] = true
+		}
+	}
+	counts := make(map[string]int, len(users))
+	for t, u := range users {
+		counts[t] = len(u)
+	}
+	return core.SortTagCounts(counts, limit), nil
+}
+
+func (s *MemoryStore) ProfileTagsForItems(ctx context.Context, profileID string, itemIDs []string) (map[string][]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string][]string, len(itemIDs))
+	for _, id := range itemIDs {
+		if tags := s.itemTags[key(profileID, id)]; len(tags) > 0 {
+			out[id] = append([]string(nil), tags...)
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) CountTagsForItems(ctx context.Context, itemIDs []string) (map[string][]core.TagCount, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	want := make(map[string]bool, len(itemIDs))
+	for _, id := range itemIDs {
+		want[id] = true
+	}
+	counts := map[string]map[string]int{}
+	for k, tags := range s.itemTags {
+		itemID := k[strings.Index(k, ":")+1:]
+		if !want[itemID] {
+			continue
+		}
+		if counts[itemID] == nil {
+			counts[itemID] = map[string]int{}
+		}
+		for _, t := range tags {
+			counts[itemID][t]++
+		}
+	}
+	out := make(map[string][]core.TagCount, len(counts))
+	for id, c := range counts {
+		out[id] = core.SortTagCounts(c, 0)
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) ProfileItemIDs(ctx context.Context, profileID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := map[string]bool{}
+	prefix := profileID + ":"
+	for k := range s.itemTags {
+		if strings.HasPrefix(k, prefix) {
+			seen[k[len(prefix):]] = true
+		}
+	}
+	for k := range s.profLayers {
+		if strings.HasPrefix(k, prefix) {
+			seen[k[len(prefix):]] = true
+		}
+	}
+	for id, l := range s.loadouts {
+		if l.OwnerProfileID != profileID {
+			continue
+		}
+		for _, e := range s.entries[id] {
+			if e.ItemID != "" {
+				seen[e.ItemID] = true
+			}
+		}
+	}
+	for id, item := range s.items {
+		if item.ImportedBy == profileID {
+			seen[id] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // --- Templates ---

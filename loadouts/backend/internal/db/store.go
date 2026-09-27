@@ -56,6 +56,22 @@ type Store interface {
 	UpsertProfileItemLayer(ctx context.Context, layer core.ProfileItemLayer) error
 	GetProfileItemLayer(ctx context.Context, profileID, itemID string) (*core.ProfileItemLayer, error)
 
+	// Tags. Each profile labels its own gear; there are no global or community tags, only
+	// aggregates over what profiles chose. See migration 0011.
+	SetProfileItemTags(ctx context.Context, profileID, itemID string, tags []string) error // empty clears
+	GetProfileItemTags(ctx context.Context, profileID, itemID string) ([]string, error)
+	// CountItemTags reports, per tag, how many profiles put it on this item.
+	CountItemTags(ctx context.Context, itemID string) ([]core.TagCount, error)
+	// CountTags reports, per tag, how many profiles use it anywhere, filtered to tags
+	// starting with prefix. Most used first.
+	CountTags(ctx context.Context, prefix string, limit int) ([]core.TagCount, error)
+	// ProfileTagsForItems and CountTagsForItems are the batch forms, for search results.
+	ProfileTagsForItems(ctx context.Context, profileID string, itemIDs []string) (map[string][]string, error)
+	CountTagsForItems(ctx context.Context, itemIDs []string) (map[string][]core.TagCount, error)
+	// ProfileItemIDs is the profile's gear: items it used in its own loadouts, tagged,
+	// annotated in a layer, or imported.
+	ProfileItemIDs(ctx context.Context, profileID string) ([]string, error)
+
 	// Templates
 	CreateTemplate(ctx context.Context, tmpl core.Template) error
 	UpdateTemplate(ctx context.Context, tmpl core.Template) error

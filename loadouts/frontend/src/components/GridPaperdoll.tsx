@@ -1,10 +1,10 @@
 import { useId, useMemo, useState, type ReactNode } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Maximize2, Plus, Trash2 } from 'lucide-react';
 import type { PaperdollLayout, ResolvedEntry, SlotDefinition } from '../api/types';
 import { FIGURES, TONE_FILL } from '../paperdoll/figures';
 import { TILE, blockIndexAt, cellOwners, centroid, decodeRuns, footprint } from '../paperdoll/grid';
 import { ItemThumb } from './ItemThumb';
-import { PaperdollSlot } from './Paperdoll';
+import { HiddenNote, PaperdollFrame, PaperdollSlot, wrapAround, type SlotActions } from './Paperdoll';
 
 /** A region to light up on the figures: some cells, clipped to the silhouette under them. */
 export interface Highlight {
@@ -129,35 +129,36 @@ export function blockStyle(layout: PaperdollLayout, block: { col: number; row: n
  * cells lean towards. Hovering a frame lights its cells on the figure, and hovering the
  * figure finds the frame, so the link works in both directions. Tile-bound slots are the
  * tile: the card on the canvas is where you add and see the items.
+ *
+ * Slots the layout does not place (added to the template after the layout was drawn, or
+ * invented by the loadout's owner) still belong to the paperdoll: they fill out the side
+ * columns and then a row underneath, rather than falling out into a separate grid.
  */
 export function GridPaperdoll({
   layout,
   slots,
   entries,
-  readOnly,
-  selectedEntryId,
-  onPick,
-  onRemove,
-  onSelect,
+  actions,
   action,
+  footer,
 }: {
   layout: PaperdollLayout;
   slots: SlotDefinition[];
   entries: ResolvedEntry[];
-  readOnly: boolean;
-  selectedEntryId: string | null;
-  onPick: (slot: SlotDefinition) => void;
-  onRemove: (node: ResolvedEntry) => void;
-  onSelect: (entryId: string | null) => void;
+  actions: SlotActions;
   /** Rendered in the header, for the editor's entry point. */
   action?: ReactNode;
+  /** Trailing content for the bottom row, such as the "add slot" control. */
+  footer?: ReactNode;
 }) {
+  const { readOnly, selectedEntryId, onPick, onSelect } = actions;
   const [hovered, setHovered] = useState<string | null>(null);
   const slotById = useMemo(() => new Map(slots.map((s) => [s.id, s])), [slots]);
   const owners = useMemo(() => cellOwners(layout), [layout]);
   const occupantsOf = (slotId: string) => entries.filter((e) => e.entry.slot_id === slotId);
+  const visibleIn = (slotId: string) => occupantsOf(slotId).filter((e) => !e.hidden);
 
-  const { tiles, left, right, cellsOf } = useMemo(() => {
+  const { tiles, left, right, bottom, cellsOf } = useMemo(() => {
     const cellsOf = new Map(layout.bindings.map((b) => [b.slot_id, decodeRuns(b.cells)]));
     const tiles = layout.blocks
       .filter((b) => b.block === TILE)
@@ -183,13 +184,19 @@ export function GridPaperdoll({
       else if (s.lean > 0.75) right.push(s.slotId);
       else (left.length <= right.length ? left : right).push(s.slotId);
     }
-    return { tiles, left, right, cellsOf };
-  }, [layout, owners, slotById]);
+
+    const placed = new Set([...left, ...right, ...tiles.map((t) => t.slotId)]);
+    const extras = slots.filter((s) => !placed.has(s.id)).map((s) => s.id);
+    // A layout of tiles alone has no figure to flank, so its extras all go underneath.
+    const hasFigure = layout.blocks.some((b) => b.block !== TILE);
+    const wrapped = hasFigure ? wrapAround(left, right, extras) : { left, right, bottom: extras };
+    return { tiles, ...wrapped, cellsOf };
+  }, [layout, owners, slotById, slots]);
 
   const highlights: Highlight[] = [];
   for (const [slotId, cells] of cellsOf) {
     if (!slotById.has(slotId)) continue;
-    const occupants = occupantsOf(slotId);
+    const occupants = visibleIn(slotId);
     const selected = occupants.some((n) => n.entry.id === selectedEntryId);
     if (selected) highlights.push({ cells, fill: '#38bdf8', opacity: 0.5, outline: true });
     else if (hovered === slotId)
@@ -212,23 +219,15 @@ export function GridPaperdoll({
     return slotId && block && block.block !== TILE && slotById.has(slotId) ? slotId : null;
   };
 
-  const column = (ids: string[]) => (
-    <div className="flex flex-col gap-2.5 min-w-0">
-      {ids.map((id) => (
-        <PaperdollSlot
-          key={id}
-          slot={slotById.get(id)!}
-          occupants={occupantsOf(id)}
-          readOnly={readOnly}
-          hovered={hovered === id}
-          selectedEntryId={selectedEntryId}
-          onHover={setHovered}
-          onPick={() => onPick(slotById.get(id)!)}
-          onRemove={onRemove}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
+  const frame = (id: string) => (
+    <PaperdollSlot
+      key={id}
+      slot={slotById.get(id)!}
+      occupants={occupantsOf(id)}
+      actions={actions}
+      hovered={hovered === id}
+      onHover={setHovered}
+    />
   );
 
   const canvas = (
@@ -241,7 +240,7 @@ export function GridPaperdoll({
         onClick={(e) => {
           const slotId = figureSlotAt(e);
           if (!slotId) return;
-          const first = occupantsOf(slotId)[0];
+          const first = visibleIn(slotId)[0];
           if (first) onSelect(first.entry.id === selectedEntryId ? null : first.entry.id);
           else if (!readOnly) onPick(slotById.get(slotId)!);
         }}
@@ -253,15 +252,7 @@ export function GridPaperdoll({
         return (
           <div key={i} className="absolute p-[3px]" style={blockStyle(layout, t)}>
             {slot ? (
-              <TileCard
-                slot={slot}
-                occupants={occupantsOf(slot.id)}
-                readOnly={readOnly}
-                selectedEntryId={selectedEntryId}
-                onPick={() => onPick(slot)}
-                onRemove={onRemove}
-                onSelect={onSelect}
-              />
+              <TileCard slot={slot} occupants={occupantsOf(slot.id)} actions={actions} />
             ) : (
               <div className="w-full h-full rounded-lg border border-dashed border-stone-800" />
             )}
@@ -272,25 +263,14 @@ export function GridPaperdoll({
   );
 
   return (
-    <div className="mb-8 p-5 rounded-xl bg-stone-900/60 border border-stone-800">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Equipped</span>
-        <div className="flex items-center gap-3">
-          {hasFigures && <span className="text-[10px] text-stone-600">Hover the figure or a slot to link them</span>}
-          {action}
-        </div>
-      </div>
-
-      {hasFigures ? (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-center">
-          {column(left)}
-          {canvas}
-          {column(right)}
-        </div>
-      ) : (
-        <div className="max-w-xl mx-auto">{canvas}</div>
-      )}
-    </div>
+    <PaperdollFrame
+      hint={hasFigures ? 'Hover the figure or a slot to link them' : undefined}
+      action={action}
+      left={left.map(frame)}
+      right={right.map(frame)}
+      bottom={[...bottom.map(frame), ...(footer ? [<div key="footer">{footer}</div>] : [])]}
+      figure={canvas}
+    />
   );
 }
 
@@ -298,25 +278,13 @@ export function GridPaperdoll({
  * A tile is a slot with no body part: a meal, a sleep system. It shows its items directly,
  * as a stack of thumbnails when space is tight.
  */
-function TileCard({
-  slot,
-  occupants,
-  readOnly,
-  selectedEntryId,
-  onPick,
-  onRemove,
-  onSelect,
-}: {
-  slot: SlotDefinition;
-  occupants: ResolvedEntry[];
-  readOnly: boolean;
-  selectedEntryId: string | null;
-  onPick: () => void;
-  onRemove: (node: ResolvedEntry) => void;
-  onSelect: (entryId: string | null) => void;
-}) {
+function TileCard({ slot, occupants: all, actions }: { slot: SlotDefinition; occupants: ResolvedEntry[]; actions: SlotActions }) {
+  const { readOnly, selectedEntryId, onPick, onRemove, onSelect, onZoom } = actions;
   const capacity = slot.max_items === -1 ? Infinity : Math.max(slot.max_items, 1);
-  const full = occupants.length >= capacity;
+  // Capacity counts gear the filter hides; the card shows only what is visible.
+  const full = all.length >= capacity;
+  const occupants = all.filter((n) => !n.hidden);
+  const hiddenCount = all.length - occupants.length;
   const holdsSelection = occupants.some((n) => n.entry.id === selectedEntryId);
   return (
     <div
@@ -334,13 +302,15 @@ function TileCard({
           {slot.required && <span className="text-orange-500/80"> *</span>}
         </span>
         {!readOnly && !full && (
-          <button onClick={onPick} className="text-stone-600 hover:text-orange-400 shrink-0" title="Add item">
+          <button onClick={() => onPick(slot)} className="text-stone-600 hover:text-orange-400 shrink-0" title="Add item">
             <Plus className="w-3 h-3" />
           </button>
         )}
       </div>
       {occupants.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-[11px] text-stone-600 italic">Empty</div>
+        <div className="flex-1 flex items-center justify-center">
+          {hiddenCount > 0 ? <HiddenNote count={hiddenCount} /> : <span className="text-[11px] text-stone-600 italic">Empty</span>}
+        </div>
       ) : (
         <div className="flex-1 min-h-0 mt-1.5 flex flex-wrap content-start gap-1.5 overflow-hidden">
           {occupants.map((node) => {
@@ -357,6 +327,11 @@ function TileCard({
                   <ItemThumb imageUrl={node.item.image_url} category={node.item.category} size="w-6 h-6" iconSize="w-3.5 h-3.5" />
                   <span className="text-[11px] truncate">{node.item.name}</span>
                 </button>
+                {(node.item.provided_slots ?? []).length > 0 && (
+                  <button onClick={() => onZoom(node)} className="text-stone-600 hover:text-white shrink-0" title="Open">
+                    <Maximize2 className="w-3 h-3" />
+                  </button>
+                )}
                 {!readOnly && (
                   <button
                     onClick={() => onRemove(node)}

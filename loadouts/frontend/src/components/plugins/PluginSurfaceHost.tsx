@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, Puzzle } from 'lucide-react';
 import { api } from '../../api/client';
-import type { PluginSurface, RenderedView } from '../../api/types';
+import type { PluginSurface, RenderedView, TagFilter } from '../../api/types';
 import { useAsync } from '../../lib/useAsync';
 import { Spinner } from '../ui';
 import { PluginEmbed } from './PluginEmbed';
@@ -12,6 +12,11 @@ interface PluginSurfaceProps {
   loadoutId?: string;
   itemId?: string;
   communityId?: string;
+  /** The loadout's tag filter. Plugins see only the gear the filter shows, the same as the
+   *  slots and stats do. */
+  filter?: TagFilter;
+  /** Change this to re-render, e.g. after the loadout was edited. */
+  refreshKey?: unknown;
   /** Rendered when nothing is installed, so a surface can stay silent if it prefers. */
   emptyHint?: ReactNode;
 }
@@ -24,13 +29,24 @@ interface PluginSurfaceProps {
  * error rather than an absence — one broken plugin shows a message in its own box instead
  * of taking the page down with it.
  */
-export function PluginSurfaceHost({ surface, loadoutId, itemId, communityId, emptyHint }: PluginSurfaceProps) {
+export function PluginSurfaceHost({
+  surface,
+  loadoutId,
+  itemId,
+  communityId,
+  filter,
+  refreshKey,
+  emptyHint,
+}: PluginSurfaceProps) {
+  const filterKey = filter ? `${filter.tags.join(',')}|${filter.exclude_untagged}` : '';
   const { data, error, loading } = useAsync(
-    () => api.renderSurface({ surface, loadout_id: loadoutId, item_id: itemId, community_id: communityId }),
-    [surface, loadoutId, itemId, communityId],
+    () => api.renderSurface({ surface, loadout_id: loadoutId, item_id: itemId, community_id: communityId, filter }),
+    [surface, loadoutId, itemId, communityId, filterKey, refreshKey],
   );
 
-  if (loading) return <Spinner />;
+  // Only the first load gets a spinner. A refresh keeps the old panels up until the new
+  // ones arrive, instead of collapsing the page under the cursor on every edit.
+  if (loading && !data) return <Spinner />;
 
   // A failure to reach the plugin service should not look like a broken page: the rest
   // of the loadout is still perfectly usable without its plugins.

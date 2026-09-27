@@ -91,9 +91,18 @@ var catalogue = []item{
 		{ID: "ditty-1", Name: "Pocket 1", AcceptedCategories: []string{"universal"}, MaxItems: -1, Position: 0},
 	}},
 	// Streetwear, to prove the model is not backpacking-specific.
+	// Warm and cold variants of the worn layers, tagged below, for the four-season loadout.
+	{ID: "fleece-senchi-alpha-90", Name: "Senchi Designs Alpha 90 Hoodie", Category: "outerwear", WeightG: 110, CostCents: 9500},
+	{ID: "jacket-montbell-plasma", Name: "Montbell Plasma 1000 Down Jacket", Category: "outerwear", WeightG: 170, CostCents: 33900},
+	{ID: "bottoms-capilene-midweight", Name: "Patagonia Capilene Midweight Bottoms", Category: "pants", WeightG: 150, CostCents: 7900},
 	{ID: "jacket-arcteryx-beta", Name: "Arc'teryx Beta LT Jacket", Category: "outerwear", WeightG: 430, CostCents: 45000},
 	{ID: "sneaker-nb-990v6", Name: "New Balance 990v6", Category: "shoes", WeightG: 800, CostCents: 20000},
 	{ID: "denim-full-count-1101", Name: "Full Count 1101 Denim", Category: "pants", WeightG: 700, CostCents: 32000},
+	// Hats, tagged by several people for one trip, to show tag search across profiles.
+	{ID: "hat-or-seattle-sombrero", Name: "Outdoor Research Seattle Rain Hat", Category: "headwear", WeightG: 99, CostCents: 6000},
+	{ID: "hat-patagonia-duckbill", Name: "Patagonia Duckbill Cap", Category: "headwear", WeightG: 57, CostCents: 3900},
+	{ID: "hat-arcteryx-bird-cap", Name: "Arc'teryx Bird Word Cap", Category: "headwear", WeightG: 60, CostCents: 3500},
+	{ID: "hat-smartwool-beanie", Name: "Smartwool Merino Beanie", Category: "headwear", WeightG: 40, CostCents: 3000},
 }
 
 // Run is idempotent: if the demo user already exists, seeding is skipped.
@@ -219,8 +228,9 @@ func Run(ctx context.Context, s Services) error {
 		{ID: "sleep-bag", Name: "Sleeping Bag / Quilt", AcceptedCategories: []string{"sleep"}, Required: true, Position: 1},
 		{ID: "sleep-pad", Name: "Sleeping Pad", AcceptedCategories: []string{"sleep"}, Required: true, Position: 2},
 		{ID: "pack", Name: "Backpack", AcceptedCategories: []string{"pack"}, Required: true, Position: 3},
-		{ID: "worn-torso", Name: "Worn: Torso", AcceptedCategories: []string{"shirt", "outerwear"}, Position: 4},
-		{ID: "worn-legs", Name: "Worn: Legs", AcceptedCategories: []string{"pants"}, Position: 5},
+		// Worn slots take layers: a base, a midlayer and a puffy on top.
+		{ID: "worn-torso", Name: "Worn: Torso", AcceptedCategories: []string{"shirt", "outerwear"}, MaxItems: 3, Position: 4},
+		{ID: "worn-legs", Name: "Worn: Legs", AcceptedCategories: []string{"pants"}, MaxItems: 2, Position: 5},
 		{ID: "worn-feet", Name: "Worn: Feet", AcceptedCategories: []string{"shoes"}, Position: 6},
 		{ID: "poles", Name: "Trekking Poles", AcceptedCategories: []string{"poles"}, Position: 7},
 	}, "Initial version.")
@@ -325,6 +335,67 @@ func seedLoadouts(ctx context.Context, s Services, gearhead, fitcheck, sponsor c
 	}
 	if _, err := s.Loadouts.Publish(ctx, gearhead.ID, pct.Loadout.ID, core.VisibilityPublic, ul.ID); err != nil {
 		return fmt.Errorf("publish PCT loadout: %w", err)
+	}
+
+	// One loadout holding a warm and a cold variant of the same kit. The worn layers are
+	// tagged; the tent, quilt and pack are not, so they show under either filter.
+	tags := map[string][]string{
+		"shirt-capilene-cool":        {"warmwear"},
+		"pants-strider-pro":          {"warmwear"},
+		"fleece-senchi-alpha-90":     {"coldwear"},
+		"jacket-montbell-plasma":     {"coldwear"},
+		"bottoms-capilene-midweight": {"coldwear"},
+	}
+	for itemID, t := range tags {
+		if _, err := s.Inventory.SetItemTags(ctx, gearhead.ID, itemID, t); err != nil {
+			return fmt.Errorf("seed tags for %s: %w", itemID, err)
+		}
+	}
+	// Other people's tags on the same gear. They never show in gearhead's loadouts, which
+	// filter by gearhead's own tags, but they feed the global counts in the inspector.
+	for _, t := range []struct {
+		profileID, itemID string
+		tags              []string
+	}{
+		{fitcheck.ID, "shirt-capilene-cool", []string{"warmwear", "travel"}},
+		{sponsor.ID, "shirt-capilene-cool", []string{"warmwear"}},
+		{sponsor.ID, "jacket-montbell-plasma", []string{"coldwear", "packable"}},
+		// Everyone packed a hat for the same Seattle trip.
+		{gearhead.ID, "hat-patagonia-duckbill", []string{"springseattle26", "rain"}},
+		{gearhead.ID, "hat-smartwool-beanie", []string{"coldwear"}},
+		{fitcheck.ID, "hat-arcteryx-bird-cap", []string{"springseattle26"}},
+		{fitcheck.ID, "hat-patagonia-duckbill", []string{"springseattle26"}},
+		{sponsor.ID, "hat-or-seattle-sombrero", []string{"springseattle26", "rain"}},
+	} {
+		if _, err := s.Inventory.SetItemTags(ctx, t.profileID, t.itemID, t.tags); err != nil {
+			return fmt.Errorf("seed tags for %s: %w", t.itemID, err)
+		}
+	}
+	seasons, err := s.Loadouts.Create(ctx, gearhead.ID, service.CreateLoadoutRequest{
+		Name:            "Four-Season Sierra Kit",
+		Description:     "Summer and shoulder-season layers in one list. Filter by #warmwear or #coldwear to see either trip.",
+		TemplateID:      backpacking.Template.ID,
+		TemplateVersion: backpacking.Version.Version,
+		CommunityID:     ul.ID,
+		Entries: []core.LoadoutEntry{
+			{SlotID: "shelter", ItemID: "tent-xmid-1", Position: 0},
+			{SlotID: "sleep-bag", ItemID: "quilt-ee-enigma-20", Position: 1},
+			{SlotID: "sleep-pad", ItemID: "pad-uberlite", Position: 2},
+			{SlotID: "pack", ItemID: "pack-hmg-3400", Position: 3},
+			{SlotID: "worn-torso", ItemID: "shirt-capilene-cool", Position: 4},
+			{SlotID: "worn-torso", ItemID: "fleece-senchi-alpha-90", Position: 5},
+			{SlotID: "worn-torso", ItemID: "jacket-montbell-plasma", Position: 6},
+			{SlotID: "worn-legs", ItemID: "pants-strider-pro", Position: 7},
+			{SlotID: "worn-legs", ItemID: "bottoms-capilene-midweight", Position: 8},
+			{SlotID: "worn-feet", ItemID: "shoes-lone-peak-8", Position: 9},
+			{SlotID: "poles", ItemID: "poles-alpine-cork", Position: 10},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("seed four-season loadout: %w", err)
+	}
+	if _, err := s.Loadouts.Publish(ctx, gearhead.ID, seasons.Loadout.ID, core.VisibilityPublic, ul.ID); err != nil {
+		return fmt.Errorf("publish four-season loadout: %w", err)
 	}
 
 	// A sponsor loadout on the freeform template (no structure required).

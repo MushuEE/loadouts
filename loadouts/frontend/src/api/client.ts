@@ -27,6 +27,11 @@ import type {
   SlotDefinition,
   TemplateDetail,
   Visibility,
+  TagFilter,
+  GearScope,
+  GearSearch,
+  ItemTags,
+  TagCount,
 } from './types';
 
 // Relative by default so the app works from any host: the dev server proxies /api to the
@@ -93,6 +98,11 @@ function qs(params: Record<string, string | number | undefined>): string {
   return encoded ? `?${encoded}` : '';
 }
 
+function filterParams(filter?: TagFilter): Record<string, string | undefined> {
+  if (!filter || filter.tags.length === 0) return {};
+  return { tags: filter.tags.join(','), untagged: filter.exclude_untagged ? 'exclude' : undefined };
+}
+
 export const api = {
   health: () => fetch(`${BASE_URL.replace('/api/v1', '')}/healthz`).then((r) => r.ok),
 
@@ -125,6 +135,13 @@ export const api = {
   getItem: (id: string, opts: { community?: string; owner?: string } = {}) =>
     request<ResolvedItem>(`/items/${id}${qs(opts)}`),
   createItem: (body: Partial<Item>) => request<Item>('/items', { method: 'POST', body: JSON.stringify(body) }),
+  /** Replaces the acting profile's tags on an item. Returns them normalised. */
+  getItemTags: (itemId: string) => request<ItemTags>(`/items/${itemId}/tags`),
+  /** Tags across every profile, most widely used first. */
+  popularTags: (prefix = '', limit = 20) =>
+    request<{ tags: TagCount[] }>(`/items/tags${qs({ prefix: prefix || undefined, limit: String(limit) })}`),
+  setItemTags: (itemId: string, tags: string[]) =>
+    request<{ tags: string[] }>(`/items/${itemId}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) }),
   getProfileLayer: (itemId: string, owner?: string) =>
     request<ProfileItemLayer>(`/items/${itemId}/layers/profile${qs({ owner })}`),
   setProfileLayer: (
@@ -166,9 +183,11 @@ export const api = {
 
   // --- Loadouts ---
   myLoadouts: () => request<LoadoutSummary[]>('/loadouts'),
-  discover: (params: { q?: string; community_id?: string } = {}) =>
-    request<LoadoutSummary[]>(`/discover${qs(params)}`),
-  getLoadout: (id: string) => request<LoadoutDetail>(`/loadouts/${id}`),
+  discover: (params: { q?: string; community_id?: string; scope?: GearScope; tags?: string[] } = {}) =>
+    request<LoadoutSummary[]>(`/discover${qs({ ...params, tags: params.tags?.join(',') })}`),
+  searchGear: (params: { q?: string; category?: string; tags?: string[]; scope: GearScope }) =>
+    request<GearSearch>(`/items/search${qs({ ...params, tags: params.tags?.join(',') })}`),
+  getLoadout: (id: string, filter?: TagFilter) => request<LoadoutDetail>(`/loadouts/${id}${qs(filterParams(filter))}`),
   createLoadout: (body: {
     name: string;
     description?: string;
@@ -236,7 +255,11 @@ export const api = {
     loadout_id?: string;
     item_id?: string;
     community_id?: string;
-  }) => request<{ views: RenderedView[] }>(`/plugins/render${qs(params)}`),
+    filter?: TagFilter;
+  }) => {
+    const { filter, ...rest } = params;
+    return request<{ views: RenderedView[] }>(`/plugins/render${qs({ ...rest, ...filterParams(filter) })}`);
+  },
 
   listPluginData: (pluginId: string, params: { scope_type: string; scope_id: string }) =>
     request<{ data: PluginDatum[] }>(`/plugins/${pluginId}/data${qs(params)}`),

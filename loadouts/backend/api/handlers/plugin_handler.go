@@ -234,6 +234,12 @@ func (h *PluginHandler) Render(w http.ResponseWriter, r *http.Request) {
 		ItemID:      r.URL.Query().Get("item_id"),
 		CommunityID: r.URL.Query().Get("community_id"),
 	}
+	filter, err := tagFilterFromQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	req.Filter = filter
 	views, err := h.svc.RenderSurface(r.Context(), auth.ProfileID(r.Context()), req)
 	if err != nil {
 		writeError(w, err)

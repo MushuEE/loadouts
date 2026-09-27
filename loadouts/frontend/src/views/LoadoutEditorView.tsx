@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowUpLeft,
   ChevronRight,
@@ -14,7 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { api } from '../api/client';
-import type { LoadoutDetail, LoadoutEntry, ResolvedEntry, SlotDefinition, Visibility } from '../api/types';
+import type { LoadoutDetail, LoadoutEntry, ResolvedEntry, SlotDefinition, TagFilter, Visibility } from '../api/types';
 import { useSession } from '../session/SessionContext';
 import { useAsync } from '../lib/useAsync';
 import { categoryIcon, formatCost, formatGrams, formatKg } from '../lib/display';
@@ -24,7 +24,8 @@ import { FavoritePanel } from '../components/FavoritePanel';
 import { ItemPickerModal } from '../components/ItemPickerModal';
 import { ItemDetailPanel } from '../components/ItemDetailPanel';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
-import { Paperdoll } from '../components/Paperdoll';
+import { HiddenNote, Paperdoll, type SlotActions } from '../components/Paperdoll';
+import { TagFilterBar } from '../components/TagFilterBar';
 import { GridPaperdoll } from '../components/GridPaperdoll';
 import { PaperdollEditor } from '../components/PaperdollEditor';
 import { CoverImage, CoverPicker } from '../components/CoverPicker';
@@ -71,7 +72,17 @@ export function LoadoutEditorView({
   onOpenLoadout: (id: string) => void;
 }) {
   const { profile } = useSession();
-  const detail = useAsync<LoadoutDetail>(() => api.getLoadout(loadoutId), [loadoutId]);
+  // Tags turned on in the filter bar. The server applies the filter, so the stats and the
+  // plugins narrow along with the slots instead of describing gear you cannot see.
+  const [filter, setFilter] = useState<TagFilter>(NO_FILTER);
+  const filterKey = `${filter.tags.join(',')}|${filter.exclude_untagged}`;
+  const detail = useAsync<LoadoutDetail>(() => api.getLoadout(loadoutId, filter), [loadoutId, filterKey]);
+  // A filter belongs to the loadout you set it on, not to whichever one you open next.
+  useEffect(() => setFilter(NO_FILTER), [loadoutId]);
+  // Bumped whenever fresh data lands, so the plugin panels recompute after an edit rather
+  // than showing numbers from before it.
+  const [dataVersion, setDataVersion] = useState(0);
+  useEffect(() => setDataVersion((v) => v + 1), [detail.data]);
   // Path of entry IDs we have zoomed into (pack -> pocket -> ditty bag).
   const [path, setPath] = useState<string[]>([]);
   const [picking, setPicking] = useState<{ slot: SlotDefinition; parentEntryId: string } | null>(null);
@@ -84,7 +95,9 @@ export function LoadoutEditorView({
   const [editingCover, setEditingCover] = useState(false);
   const [editingPaperdoll, setEditingPaperdoll] = useState(false);
 
-  const data = detail.data;
+  // useAsync keeps the previous result while reloading, which is what stops the page
+  // blanking on every edit. It must not show the *previous loadout* while the next loads.
+  const data = detail.data?.loadout.id === loadoutId ? detail.data : null;
   const isOwner = !!profile && data?.loadout.owner_profile_id === profile.id;
 
   // The node we're currently inside; null means we're at the template root.
@@ -116,17 +129,12 @@ export function LoadoutEditorView({
   // placing them by category.
   const layout = data?.template.version.paperdoll ?? null;
 
-  // Slots the paperdoll does not place stay in the grid: unbound ones under a layout,
-  // unmapped categories under the fallback. Inside a container the paperdoll is not shown
-  // at all, so the grid takes everything.
-  const gridSlots = useMemo(() => {
-    if (path.length > 0) return slots;
-    if (layout) {
-      const bound = new Set(layout.bindings.map((b) => b.slot_id));
-      return slots.filter((s) => !bound.has(s.id));
-    }
-    return slots.filter((s) => !isMapped(targetForSlot(s)));
-  }, [slots, path.length, layout]);
+  // At the root the paperdoll takes every slot, placed or not, so gear you add never drops
+  // out of it into a separate list. The fallback paperdoll needs at least one slot it can
+  // put on the figure to be worth drawing. Inside a container there is no paperdoll: the
+  // slots are the container's compartments, which are not body parts.
+  const showPaperdoll = path.length === 0 && (!!layout || slots.some((s) => isMapped(targetForSlot(s))));
+  const gridSlots = showPaperdoll ? [] : slots;
 
   async function persist(entries: LoadoutEntry[]) {
     setBusy(true);
@@ -141,8 +149,18 @@ export function LoadoutEditorView({
     }
   }
 
-  function addItem(itemId: string, slot: SlotDefinition, parentEntryId: string) {
+  async function addItem(itemId: string, slot: SlotDefinition, parentEntryId: string) {
     if (!data) return;
+    // Adding gear while a filter is on means "this belongs to that variant". Tag it to
+    // match, or it would vanish the moment it was added.
+    if (filter.tags.length > 0) {
+      try {
+        const { mine } = await api.getItemTags(itemId);
+        await api.setItemTags(itemId, [...new Set([...mine, ...filter.tags])]);
+      } catch (err) {
+        setError(`Added, but could not tag it: ${(err as Error).message}`);
+      }
+    }
     const all = flatten(data.entries);
     const siblings = all.filter((e) => e.parent_entry_id === parentEntryId);
     all.push({
@@ -264,9 +282,22 @@ export function LoadoutEditorView({
     }
   }
 
-  if (detail.loading) return <Spinner label="Loading loadout…" />;
-  if (detail.error) return <div className="p-8 flex-1"><ErrorNote message={detail.error} /></div>;
-  if (!data) return null;
+  if (detail.error && !data) return <div className="p-8 flex-1"><ErrorNote message={detail.error} /></div>;
+  if (!data) return <Spinner label="Loading loadout…" />;
+
+  const actions: SlotActions = {
+    readOnly: !isOwner,
+    selectedEntryId,
+    customSlotIds,
+    onPick: (slot) => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' }),
+    onRemove: removeEntry,
+    onSelect: setSelectedEntryId,
+    onZoom: (node) => setPath([...path, node.entry.id]),
+    // Only a slot you invented can be taken away. A template slot belongs to the version
+    // this loadout is pinned to, not to you.
+    onRemoveSlot: isOwner ? removeSlot : undefined,
+  };
+  const filtering = filter.tags.length > 0;
 
   // Freeform templates define no slots, so we synthesize one open slot per loose entry plus
   // a trailing empty one; structured templates render their fixed slot grid.
@@ -302,6 +333,27 @@ export function LoadoutEditorView({
       {layout ? 'Edit paperdoll' : 'Lay out a paperdoll'}
     </button>
   ) : null;
+
+  // Inventing a slot is only offered at the root. Inside a container the slots are the
+  // container's own compartments, which come from the item, not from you - a pocket you
+  // made up would have nowhere to live.
+  const addSlotControl =
+    isOwner && path.length === 0 ? (
+      addingSlot ? (
+        <AddSlotForm busy={busy} onCancel={() => setAddingSlot(false)} onSubmit={addSlot} />
+      ) : (
+        <button
+          onClick={() => setAddingSlot(true)}
+          title="Yours only - the template is untouched"
+          className={`w-full rounded-lg border border-dashed border-stone-800 hover:border-sky-500/60 text-stone-600 hover:text-sky-400 flex items-center justify-center gap-2 ${
+            showPaperdoll ? 'h-full min-h-[3.25rem] p-2.5' : 'aspect-[4/3] flex-col rounded-xl'
+          }`}
+        >
+          <PlusSquare className={showPaperdoll ? 'w-4 h-4' : 'w-6 h-6'} />
+          <span className="text-[11px] uppercase font-bold tracking-wider">Add slot</span>
+        </button>
+      )
+    ) : null;
 
   const nextFreeSlot: SlotDefinition = {
     id: `free-${Date.now().toString(36)}`,
@@ -342,6 +394,14 @@ export function LoadoutEditorView({
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Say when the numbers are partial. A filtered base weight that looks like the
+              whole kit's is worse than no number at all. */}
+          {filtering && (
+            <div className="text-[11px] text-orange-300/80 leading-snug">
+              Showing {filter.tags.map((t) => `#${t}`).join(' or ')}
+              {filter.exclude_untagged ? '' : ' plus untagged gear'}. Stats cover what is shown.
+            </div>
+          )}
           <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20">
             <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-1">Base Weight</div>
             <div className="text-3xl font-light text-white">{formatKg(data.stats.base_weight_g)}</div>
@@ -385,7 +445,7 @@ export function LoadoutEditorView({
 
         {/* Sidebar plugins sit with the stats, since that is what they annotate. */}
         <div className="px-4 pb-4">
-          <PluginSurfaceHost surface="loadout.sidebar" loadoutId={loadoutId} />
+          <PluginSurfaceHost surface="loadout.sidebar" loadoutId={loadoutId} filter={filter} refreshKey={dataVersion} />
         </div>
 
         <div className="mt-auto p-6 border-t border-stone-800 space-y-2">
@@ -452,7 +512,10 @@ export function LoadoutEditorView({
               <ArrowUpLeft className="w-3.5 h-3.5" /> Up
             </button>
           )}
+          {detail.loading && <span className="ml-auto text-[11px] text-stone-600">Updating…</span>}
         </header>
+
+        <TagFilterBar summary={data.filter} value={filter} onChange={setFilter} canTag={isOwner} />
 
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto">
@@ -513,35 +576,31 @@ export function LoadoutEditorView({
             {/* The paperdoll takes the slots it can place; the grid keeps the rest. Only
                 at the template root - inside a container the slots are the container's
                 own compartments, which are not body parts. */}
-            {path.length === 0 && layout && (
+            {showPaperdoll && layout && (
               <GridPaperdoll
                 layout={layout}
                 slots={slots}
                 entries={currentEntries}
-                readOnly={!isOwner}
-                selectedEntryId={selectedEntryId}
-                onPick={(slot) => setPicking({ slot, parentEntryId: '' })}
-                onRemove={removeEntry}
-                onSelect={setSelectedEntryId}
+                actions={actions}
                 action={paperdollButton}
+                footer={addSlotControl}
               />
             )}
-            {path.length === 0 && !layout && paperdollButton && (
-              <div className="flex justify-end mb-2">{paperdollButton}</div>
-            )}
-            {path.length === 0 && !layout && (
+            {showPaperdoll && !layout && (
               <Paperdoll
                 templateName={data.template.template.name}
                 slots={slots}
                 entries={currentEntries}
-                readOnly={!isOwner}
-                selectedEntryId={selectedEntryId}
-                onPick={(slot) => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' })}
-                onRemove={removeEntry}
-                onSelect={setSelectedEntryId}
+                actions={actions}
+                action={paperdollButton}
+                footer={addSlotControl}
               />
             )}
+            {path.length === 0 && !showPaperdoll && paperdollButton && (
+              <div className="flex justify-end mb-2">{paperdollButton}</div>
+            )}
 
+            {(gridSlots.length > 0 || looseEntries.length > 0 || (freeform && isOwner) || (!showPaperdoll && addSlotControl)) && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {/* Structured slots from the template (or the container item). */}
               {gridSlots.map((slot) => {
@@ -555,19 +614,17 @@ export function LoadoutEditorView({
                     readOnly={!isOwner}
                     custom={custom}
                     selectedEntryId={selectedEntryId}
-                    onPick={() => setPicking({ slot, parentEntryId: currentNode?.entry.id ?? '' })}
-                    onZoom={(node) => setPath([...path, node.entry.id])}
+                    onPick={() => actions.onPick(slot)}
+                    onZoom={actions.onZoom}
                     onRemove={removeEntry}
                     onSelect={setSelectedEntryId}
-                    // Only a slot you invented can be taken away. A template slot belongs to
-                    // the version this loadout is pinned to, not to you.
                     onRemoveSlot={isOwner && custom ? () => removeSlot(slot) : undefined}
                   />
                 );
               })}
 
               {/* Loose items: everything not claimed by a slot, one synthesised cell each. */}
-              {looseEntries.map((node) => (
+              {looseEntries.filter((n) => !n.hidden).map((node) => (
                 <SlotCell
                   key={node.entry.id}
                   slot={{
@@ -598,26 +655,9 @@ export function LoadoutEditorView({
                 </button>
               )}
 
-              {/* Inventing a slot is only offered at the root. Inside a container the slots
-                  are the container's own compartments, which come from the item, not from
-                  you - a pocket you made up would have nowhere to live. */}
-              {isOwner && path.length === 0 && !addingSlot && (
-                <button
-                  onClick={() => setAddingSlot(true)}
-                  className="aspect-[4/3] rounded-xl border border-dashed border-stone-800 hover:border-sky-500/60 text-stone-600 hover:text-sky-400 flex flex-col items-center justify-center gap-2"
-                >
-                  <PlusSquare className="w-6 h-6" />
-                  <span className="text-[11px] uppercase font-bold tracking-wider">Add slot</span>
-                  <span className="text-[10px] text-stone-700 px-3 text-center leading-snug">
-                    Yours only — the template is untouched
-                  </span>
-                </button>
-              )}
-
-              {addingSlot && (
-                <AddSlotForm busy={busy} onCancel={() => setAddingSlot(false)} onSubmit={addSlot} />
-              )}
+              {!showPaperdoll && addSlotControl}
             </div>
+            )}
 
             {slots.length === 0 && currentEntries.length === 0 && !isOwner && (
               <div className="text-stone-600 text-sm py-12 text-center">This container is empty.</div>
@@ -627,7 +667,7 @@ export function LoadoutEditorView({
                 loadout, so showing it while zoomed into a container would be a lie. */}
             {path.length === 0 && (
               <div className="mt-8">
-                <PluginSurfaceHost surface="loadout.panel" loadoutId={loadoutId} />
+                <PluginSurfaceHost surface="loadout.panel" loadoutId={loadoutId} filter={filter} refreshKey={dataVersion} />
               </div>
             )}
           </div>
@@ -636,7 +676,15 @@ export function LoadoutEditorView({
 
       {/* A rail, not a modal. Inspecting is something you do *while* comparing slots, so it
           must not cover the grid or need dismissing before the next click. */}
-      {selectedNode && <ItemDetailPanel node={selectedNode} onClose={() => setSelectedEntryId(null)} />}
+      {selectedNode && (
+        <ItemDetailPanel
+          node={selectedNode}
+          onClose={() => setSelectedEntryId(null)}
+          ownerHandle={isOwner ? null : data.owner.handle}
+          // The loadout filters by its owner's tags, so only the owner's edits change it.
+          onTagsChanged={isOwner ? detail.reload : undefined}
+        />
+      )}
 
       {picking && (
         <ItemPickerModal
@@ -671,7 +719,7 @@ export function LoadoutEditorView({
 
 function SlotCell({
   slot,
-  occupants,
+  occupants: all,
   readOnly,
   custom,
   selectedEntryId,
@@ -694,10 +742,13 @@ function SlotCell({
   /** Absent for template slots, which are not the owner's to delete. */
   onRemoveSlot?: () => void;
 }) {
-  const empty = occupants.length === 0;
   // max_items 0 means "exactly one" and -1 means unlimited. See core.SlotDefinition.
   const capacity = slot.max_items === -1 ? Infinity : Math.max(slot.max_items, 1);
-  const full = occupants.length >= capacity;
+  // Capacity counts gear the tag filter hides; the cell shows only what is visible.
+  const full = all.length >= capacity;
+  const occupants = all.filter((n) => !n.hidden);
+  const hiddenCount = all.length - occupants.length;
+  const empty = occupants.length === 0;
 
   return (
     <div
@@ -732,7 +783,7 @@ function SlotCell({
             className="text-[9px] font-medium text-stone-600 tabular-nums shrink-0"
             title={`This slot holds ${capacity === 1 ? 'one item' : `${capacity} items`}. Remove one to swap.`}
           >
-            {occupants.length}/{capacity}
+            {all.length}/{capacity}
           </span>
         )}
         {onRemoveSlot && (
@@ -747,7 +798,9 @@ function SlotCell({
       </div>
 
       <div className="flex-1 p-3 space-y-2">
-        {empty ? (
+        {empty && hiddenCount > 0 ? (
+          <HiddenNote count={hiddenCount} />
+        ) : empty ? (
           <button
             onClick={readOnly ? undefined : onPick}
             className="w-full h-full min-h-[4rem] flex flex-col items-center justify-center gap-1 text-stone-700 hover:text-orange-400 disabled:hover:text-stone-700"
@@ -759,7 +812,7 @@ function SlotCell({
         ) : (
           occupants.map((node) => {
             const hasSlots = (node.item.provided_slots ?? []).length > 0;
-            const childCount = node.children?.length ?? 0;
+            const childCount = node.children?.filter((c) => !c.hidden).length ?? 0;
             const selected = selectedEntryId === node.entry.id;
             return (
               <div
@@ -811,13 +864,16 @@ function SlotCell({
             );
           })
         )}
+        {!empty && hiddenCount > 0 && <HiddenNote count={hiddenCount} />}
       </div>
     </div>
   );
 }
 
+const NO_FILTER: TagFilter = { tags: [], exclude_untagged: false };
+
 /**
- * Inline form for inventing a slot, sized to sit in the grid where the "Add slot" tile was.
+ * Inline form for inventing a slot, sized to sit where the "Add slot" button was.
  *
  * Inline rather than a modal because it is a small, low-stakes, repeatable action, and
  * because you want to see the slots you already have while naming the next one.
@@ -898,6 +954,7 @@ const SLOT_CATEGORIES = [
   'consumable',
   'electronics',
   'fuel',
+  'headwear',
   'kitchen',
   'organizer',
   'outerwear',

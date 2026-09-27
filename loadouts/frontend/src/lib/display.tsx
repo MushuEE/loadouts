@@ -97,3 +97,8 @@ export function categoryIcon(category: string, className = 'w-5 h-5') {
       return <Box className={className} />;
   }
 }
+
+/** An item's resolved tags (core.tags), as the owner set them. */
+export function itemTags(item: ResolvedItem | undefined): string[] {
+  return item?.tags ?? [];
+}
