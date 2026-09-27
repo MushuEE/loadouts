@@ -34,6 +34,9 @@ type RenderRequest struct {
 	LoadoutID   string
 	ItemID      string
 	CommunityID string
+	// Filter narrows a loadout's rows and stats the way the editor is narrowed, so a
+	// plugin describes the kit you are looking at rather than everything in the loadout.
+	Filter core.TagFilter
 }
 
 // RenderSurface evaluates every enabled view installed on a surface.
@@ -95,7 +98,7 @@ func (s *PluginService) buildScope(ctx context.Context, viewerProfileID string, 
 		}
 		// Detail enforces visibility, so a plugin can never be used to read a loadout
 		// its viewer could not open directly.
-		detail, err := s.loadouts.Detail(ctx, req.LoadoutID, viewerProfileID)
+		detail, err := s.loadouts.DetailFiltered(ctx, req.LoadoutID, viewerProfileID, req.Filter)
 		if err != nil {
 			return "", "", core.WidgetData{}, err
 		}
@@ -317,6 +320,9 @@ func loadoutWidgetData(detail core.LoadoutDetail, viewerProfileID string) core.W
 	var walk func(entries []core.ResolvedEntry, depth int)
 	walk = func(entries []core.ResolvedEntry, depth int) {
 		for _, e := range entries {
+			if e.Hidden {
+				continue
+			}
 			rows = append(rows, map[string]interface{}{
 				"entry": map[string]interface{}{
 					"id":              e.Entry.ID,

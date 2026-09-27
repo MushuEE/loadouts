@@ -69,6 +69,9 @@ export interface ResolvedItem {
   sources?: { supplier_name: string; price: number; url: string }[];
   origin?: ItemOrigin;
   verified: boolean;
+  /** Tags of the profile this item was resolved for: a loadout's owner, or you in your
+   *  own garage. Tags are per-profile, never a property of the item itself. */
+  tags: string[];
 }
 
 /** How an item entered the catalog. Imports are usable but flagged until vouched for. */
@@ -258,6 +261,8 @@ export interface ResolvedEntry {
   entry: LoadoutEntry;
   item: ResolvedItem;
   children?: ResolvedEntry[];
+  /** Excluded by the active tag filter. Hidden entries stay in the tree so a save keeps them. */
+  hidden?: boolean;
 }
 
 export interface LoadoutStats {
@@ -275,13 +280,43 @@ export interface ValidationIssue {
   message: string;
 }
 
+/**
+ * Narrows a loadout to gear carrying any of `tags`. Untagged gear stays unless
+ * `exclude_untagged`, since it usually belongs to every variant of a kit.
+ */
+export interface TagFilter {
+  tags: string[];
+  exclude_untagged: boolean;
+}
+
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+/** One item's tags: yours, and how many profiles use each tag on it. */
+export interface ItemTags {
+  mine: string[];
+  global: TagCount[];
+}
+
+export interface LoadoutFilter extends TagFilter {
+  /** Every tag in the loadout, filtered or not, most used first. */
+  available_tags: TagCount[];
+  shown_entries: number;
+  total_entries: number;
+}
+
 export interface LoadoutDetail {
   loadout: Loadout;
   owner: Profile;
   template: TemplateDetail;
   entries: ResolvedEntry[];
+  /** Covers only what the filter shows. */
   stats: LoadoutStats;
+  /** Always about the whole loadout. */
   issues: ValidationIssue[];
+  filter: LoadoutFilter;
 }
 
 export interface LoadoutSummary {
@@ -486,4 +521,31 @@ export interface FavoriteView extends Favorite {
   /** Community name or profile handle behind scope_id, resolved server-side. */
   scope_name: string;
   loadout?: LoadoutSummary;
+}
+
+/** Whose gear a search covers, and whose tags count. */
+export type GearScope = 'mine' | 'everyone';
+
+export interface GearResult {
+  item: Item;
+  /** In the searcher's gear, whatever the scope. */
+  mine: boolean;
+  my_tags: string[];
+  /** Everyone's tags, counted in people. */
+  tags: TagCount[];
+}
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface GearSearch {
+  scope: GearScope;
+  results: GearResult[];
+  /** Tags in the results, counted in items, in the scope's sense of tag. */
+  tag_facets: TagCount[];
+  /** Ignore the category filter, so choosing one never hides the rest. */
+  category_facets: CategoryCount[];
+  total: number;
 }

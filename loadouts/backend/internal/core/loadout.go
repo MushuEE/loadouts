@@ -152,6 +152,8 @@ type ResolvedEntry struct {
 	Item       ResolvedItem        `json:"item"`
 	Children   []ResolvedEntry     `json:"children,omitempty"`
 	SubLoadout *ResolvedSubLoadout `json:"sub_loadout,omitempty"`
+	// Hidden marks an entry a tag filter excludes. It stays in the tree; see ApplyTagFilter.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // ResolvedSubLoadout is a referenced loadout as seen from its parent.
@@ -195,12 +197,15 @@ func (s *LoadoutStats) Add(other LoadoutStats, times int) {
 
 // LoadoutDetail is the full read model served for a single loadout.
 type LoadoutDetail struct {
-	Loadout  Loadout           `json:"loadout"`
-	Owner    Profile           `json:"owner"`
-	Template TemplateDetail    `json:"template"`
-	Entries  []ResolvedEntry   `json:"entries"`
-	Stats    LoadoutStats      `json:"stats"`
-	Issues   []ValidationIssue `json:"issues"`
+	Loadout  Loadout         `json:"loadout"`
+	Owner    Profile         `json:"owner"`
+	Template TemplateDetail  `json:"template"`
+	Entries  []ResolvedEntry `json:"entries"`
+	// Stats cover what the filter shows; validation always looks at the whole loadout,
+	// since a filter does not change what is actually in it.
+	Stats  LoadoutStats      `json:"stats"`
+	Issues []ValidationIssue `json:"issues"`
+	Filter LoadoutFilter     `json:"filter"`
 }
 
 // LoadoutSummary is the lightweight card shown in feeds and lists.
@@ -222,5 +227,7 @@ type DiscoverQuery struct {
 	ProfileID   string
 	Status      LoadoutStatus // Empty means any
 	OnlyPublic  bool
-	Limit       int
+	// Tags keeps loadouts whose owner tagged gear in them with every one of these.
+	Tags  []string
+	Limit int
 }

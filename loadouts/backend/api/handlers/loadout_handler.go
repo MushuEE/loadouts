@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gmccloskey/loadouts/backend/internal/auth"
 	"github.com/gmccloskey/loadouts/backend/internal/core"
@@ -67,14 +69,25 @@ func (h *LoadoutHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summaries)
 }
 
-// Discover is the public feed: published, publicly visible loadouts only.
+// Discover is the public feed: published, publicly visible loadouts only. With
+// ?scope=mine it searches the viewer's own loadouts instead, drafts and private ones
+// included, so one search box covers both. ?tags=a,b keeps loadouts whose owner tagged
+// gear in them with every tag.
 func (h *LoadoutHandler) Discover(w http.ResponseWriter, r *http.Request) {
 	query := core.DiscoverQuery{
 		Text:        r.URL.Query().Get("q"),
 		CommunityID: r.URL.Query().Get("community_id"),
 		TemplateID:  r.URL.Query().Get("template_id"),
+		Tags:        splitTags(r.URL.Query().Get("tags")),
 		OnlyPublic:  true,
 		Limit:       queryInt(r, "limit", 50),
+	}
+	if core.ParseGearScope(r.URL.Query().Get("scope")) == core.ScopeMine {
+		if query.ProfileID = auth.ProfileID(r.Context()); query.ProfileID == "" {
+			writeError(w, fmt.Errorf("%w: searching your loadouts needs a profile", core.ErrInvalid))
+			return
+		}
+		query.OnlyPublic = false
 	}
 	summaries, err := h.loadouts.Discover(r.Context(), query, auth.ProfileID(r.Context()))
 	if err != nil {
@@ -99,7 +112,12 @@ func (h *LoadoutHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *LoadoutHandler) Get(w http.ResponseWriter, r *http.Request) {
-	detail, err := h.loadouts.Detail(r.Context(), chi.URLParam(r, "loadoutID"), auth.ProfileID(r.Context()))
+	filter, err := tagFilterFromQuery(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	detail, err := h.loadouts.DetailFiltered(r.Context(), chi.URLParam(r, "loadoutID"), auth.ProfileID(r.Context()), filter)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -207,4 +225,25 @@ func defaultQuery(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// tagFilterFromQuery reads ?tags=warmwear,coldwear&untagged=exclude. Tags are normalised
+// the way they are on write, so "#WarmWear" finds what was saved as "warmwear".
+func tagFilterFromQuery(r *http.Request) (core.TagFilter, error) {
+	tags, err := core.NormalizeTags(splitTags(r.URL.Query().Get("tags")))
+	if err != nil {
+		return core.TagFilter{}, err
+	}
+	return core.TagFilter{Tags: tags, ExcludeUntagged: r.URL.Query().Get("untagged") == "exclude"}, nil
+}
+
+// splitTags reads a comma-separated ?tags= value, leaving normalising to the caller.
+func splitTags(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

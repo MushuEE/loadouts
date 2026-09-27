@@ -1,23 +1,36 @@
 import { useState } from 'react';
-import { PackagePlus, Search, X } from 'lucide-react';
+import { PackagePlus, X } from 'lucide-react';
 import { api } from '../api/client';
-import type { Community, Item, ProfileItemLayer, ResolvedItem } from '../api/types';
+import type { Community, GearSearch, ProfileItemLayer, ResolvedItem } from '../api/types';
 import { useAsync } from '../lib/useAsync';
+import { useGearScope } from '../lib/gearScope';
+import { useSession } from '../session/SessionContext';
+import { ScopeToggle } from '../components/ScopeToggle';
+import { NO_TERMS, ResultTags, SearchBar, TagSuggestions, type SearchTerms } from '../components/GearSearchControls';
 import { CORE, LAYER_STYLES, formatCost, formatGrams } from '../lib/display';
 import { ItemThumb } from '../components/ItemThumb';
 import { Badge, EmptyState, ErrorNote, Spinner } from '../components/ui';
 import { ImportItemModal } from '../components/ImportItemModal';
 import { PluginSurfaceHost } from '../components/plugins/PluginSurfaceHost';
 
-/** The Garage is the global item catalogue plus your own layer on top of it. */
+/**
+ * The Garage is the item catalogue plus your own layer on top of it. The scope switch
+ * narrows it to your gear, which is where you go to tidy up what you own.
+ */
 export function GarageView() {
-  const [query, setQuery] = useState('');
-  const [submitted, setSubmitted] = useState('');
+  const session = useSession();
+  const [scope] = useGearScope();
+  const [terms, setTerms] = useState<SearchTerms>(NO_TERMS);
   const [selected, setSelected] = useState<string | null>(null);
   const [communitySlug, setCommunitySlug] = useState('');
   const [importing, setImporting] = useState(false);
 
-  const items = useAsync<Item[]>(() => api.listItems(submitted), [submitted]);
+  const search = useAsync<GearSearch>(
+    () => api.searchGear({ q: terms.q, tags: terms.tags, scope }),
+    [terms.q, terms.tags.join(','), scope, session.profile?.id],
+  );
+  const results = search.data?.results;
+  const addTag = (tag: string) => !terms.tags.includes(tag) && setTerms({ ...terms, tags: [...terms.tags, tag] });
   const communities = useAsync<Community[]>(() => api.listCommunities(), []);
 
   return (
@@ -30,26 +43,20 @@ export function GarageView() {
               Global items are shared and immutable. Your edits live in your own layer.
             </p>
           </div>
-          <button
-            onClick={() => setImporting(true)}
-            className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg flex items-center gap-2 shrink-0"
-          >
-            <PackagePlus className="w-4 h-4" />
-            Import from a store
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <ScopeToggle />
+            <button
+              onClick={() => setImporting(true)}
+              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg flex items-center gap-2 shrink-0"
+            >
+              <PackagePlus className="w-4 h-4" />
+              Import from a store
+            </button>
+          </div>
         </div>
 
-        <div className="flex gap-3 mb-4">
-          <div className="flex items-center bg-stone-900 border border-stone-800 rounded-lg px-3 focus-within:border-orange-500 flex-1">
-            <Search className="w-4 h-4 text-stone-500" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setSubmitted(query)}
-              placeholder="Search gear…"
-              className="bg-transparent px-3 py-2 text-sm text-white outline-none flex-1 placeholder:text-stone-600"
-            />
-          </div>
+        <div className="flex gap-3 mb-3">
+          <SearchBar terms={terms} onChange={setTerms} placeholder="Search gear, or #tag…" />
           <select
             value={communitySlug}
             onChange={(e) => setCommunitySlug(e.target.value)}
@@ -65,9 +72,23 @@ export function GarageView() {
           </select>
         </div>
 
-        {items.loading && <Spinner />}
-        {items.error && <ErrorNote message={items.error} />}
-        {items.data?.length === 0 && <EmptyState title="No items match that search" />}
+        <div className="mb-4">
+          <TagSuggestions
+            suggestions={search.data?.tag_facets ?? []}
+            terms={terms}
+            onChange={setTerms}
+            unit={scope === 'mine' ? 'of your items you tagged this' : 'items carry this tag'}
+          />
+        </div>
+
+        {search.loading && !search.data && <Spinner />}
+        {search.error && <ErrorNote message={search.error} />}
+        {results?.length === 0 && (
+          <EmptyState
+            title={scope === 'mine' ? 'None of your gear matches' : 'No items match that search'}
+            hint={scope === 'mine' ? 'Your gear is what you use in your loadouts, tag, annotate or import.' : undefined}
+          />
+        )}
 
         <div className="flex-1 overflow-y-auto rounded-xl border border-stone-800 bg-stone-900/30">
           <table className="w-full text-left text-sm">
@@ -75,12 +96,13 @@ export function GarageView() {
               <tr>
                 <th className="p-4">Item</th>
                 <th className="p-4">Category</th>
+                <th className="p-4">Tags</th>
                 <th className="p-4 text-right">Weight</th>
                 <th className="p-4 text-right">Cost</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-800/50">
-              {items.data?.map((item) => (
+              {results?.map(({ item, ...r }) => (
                 <tr
                   key={item.id}
                   onClick={() => setSelected(item.id)}
@@ -100,6 +122,9 @@ export function GarageView() {
                   </td>
                   <td className="p-4">
                     <Badge className="bg-stone-800 text-stone-400">{item.category}</Badge>
+                  </td>
+                  <td className="p-4">
+                    <ResultTags result={{ item, ...r }} scope={scope} onTag={addTag} max={3} />
                   </td>
                   <td className="p-4 text-right font-mono text-stone-400">
                     {formatGrams(Number(item.base_metadata?.[CORE]?.weight_g ?? 0))}
@@ -122,7 +147,7 @@ export function GarageView() {
         <ImportItemModal
           onClose={() => setImporting(false)}
           onImported={(item) => {
-            items.reload();
+            search.reload();
             // Drop straight into the inspector so the user can add their own layer
             // (personal weight measurement, notes) while the item is fresh in mind.
             setSelected(item.id);

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gmccloskey/loadouts/backend/internal/auth"
 	"github.com/gmccloskey/loadouts/backend/internal/core"
@@ -39,11 +40,16 @@ func (h *ItemHandler) Routes() chi.Router {
 
 	r.Get("/", h.List)
 	r.Post("/", h.Create)
+	// Static, so chi matches it ahead of /{itemID}.
+	r.Get("/tags", h.PopularTags)
+	r.Get("/search", h.Search)
 	r.Route("/{itemID}", func(r chi.Router) {
 		r.Get("/", h.Get)
 		r.Post("/metadata", h.UpdateMetadata) // Legacy compat shim
 		r.Get("/layers/profile", h.GetProfileLayer)
 		r.Put("/layers/profile", h.SetProfileLayer)
+		r.Get("/tags", h.GetTags)
+		r.Put("/tags", h.SetTags)
 	})
 
 	return r
@@ -140,6 +146,78 @@ func (h *ItemHandler) SetProfileLayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, layer)
+}
+
+// GetTags returns the acting profile's tags for an item and everyone's, aggregated.
+func (h *ItemHandler) GetTags(w http.ResponseWriter, r *http.Request) {
+	tags, err := h.svc.ItemTags(r.Context(), auth.ProfileID(r.Context()), chi.URLParam(r, "itemID"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, tags)
+}
+
+// PopularTags lists tags by how many profiles use them, for suggestions.
+//
+//	?prefix=war   only tags starting with "war"
+//	?limit=20     at most 20 (default 20)
+func (h *ItemHandler) PopularTags(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	tags, err := h.svc.PopularTags(r.Context(), r.URL.Query().Get("prefix"), limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"tags": tags})
+}
+
+// Search finds gear. ?scope=mine|everyone picks whose gear (and whose tags) to search;
+// ?tags=a,b must all match; ?category narrows; ?q is free text, where #words count as tags.
+func (h *ItemHandler) Search(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	query := core.GearQuery{
+		Text:      q.Get("q"),
+		Category:  q.Get("category"),
+		Tags:      splitTags(q.Get("tags")),
+		Scope:     core.ParseGearScope(q.Get("scope")),
+		ProfileID: auth.ProfileID(r.Context()),
+		Limit:     limit,
+	}
+	if query.Scope == core.ScopeMine && query.ProfileID == "" {
+		writeError(w, fmt.Errorf("%w: searching your gear needs a profile", core.ErrInvalid))
+		return
+	}
+	res, err := h.svc.SearchGear(r.Context(), query)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// SetTags replaces the acting profile's tags for an item.
+func (h *ItemHandler) SetTags(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	tags, err := h.svc.SetItemTags(r.Context(), auth.ProfileID(r.Context()), chi.URLParam(r, "itemID"), req.Tags)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"tags": tags})
 }
 
 func (h *ItemHandler) UpdateMetadata(w http.ResponseWriter, r *http.Request) {

@@ -88,6 +88,9 @@ type ResolvedItem struct {
 	// nobody has vouched for yet.
 	Origin   string `json:"origin,omitempty"`
 	Verified bool   `json:"verified"`
+	// Tags are the tags of the profile the item is resolved for (a loadout's owner, or
+	// the viewer in their own garage). They are not metadata; see tags.go.
+	Tags []string `json:"tags"`
 }
 
 // WeightG returns the resolved core weight in grams.

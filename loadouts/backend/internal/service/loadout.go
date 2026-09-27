@@ -441,6 +441,12 @@ func (s *LoadoutService) Delete(ctx context.Context, actorProfileID, loadoutID s
 
 // Detail assembles the full read model: resolved entry tree, stats, and validation issues.
 func (s *LoadoutService) Detail(ctx context.Context, loadoutID, viewerProfileID string) (core.LoadoutDetail, error) {
+	return s.DetailFiltered(ctx, loadoutID, viewerProfileID, core.TagFilter{})
+}
+
+// DetailFiltered is Detail narrowed by a tag filter. Hidden entries stay in the tree,
+// flagged, and the stats count only what is shown.
+func (s *LoadoutService) DetailFiltered(ctx context.Context, loadoutID, viewerProfileID string, filter core.TagFilter) (core.LoadoutDetail, error) {
 	loadout, err := s.store.GetLoadout(ctx, loadoutID)
 	if err != nil {
 		return core.LoadoutDetail{}, fmt.Errorf("%w: loadout %s", core.ErrNotFound, loadoutID)
@@ -476,8 +482,29 @@ func (s *LoadoutService) Detail(ctx context.Context, loadoutID, viewerProfileID 
 	resolved := s.items.ResolveItems(ctx, itemIDs, lctx)
 
 	tree := buildEntryTree(entries, resolved)
-	stats := computeStats(entries, resolved)
 	issues := validateEntries(loadout.EffectiveSlots(tmpl.Version), entries, resolved)
+
+	summary := core.LoadoutFilter{
+		TagFilter:     filter,
+		AvailableTags: core.CountTags(tree),
+		TotalEntries:  len(entries),
+		ShownEntries:  len(entries),
+	}
+	shown := entries
+	if filter.Active() {
+		kept := core.ApplyTagFilter(tree, filter)
+		shown = make([]core.LoadoutEntry, 0, len(kept))
+		for _, e := range entries {
+			if kept[e.ID] {
+				shown = append(shown, e)
+			}
+		}
+		summary.ShownEntries = len(shown)
+	}
+	if summary.Tags == nil {
+		summary.Tags = []string{}
+	}
+	stats := computeStats(shown, resolved)
 
 	return core.LoadoutDetail{
 		Loadout:  loadout,
@@ -486,12 +513,21 @@ func (s *LoadoutService) Detail(ctx context.Context, loadoutID, viewerProfileID 
 		Entries:  tree,
 		Stats:    stats,
 		Issues:   issues,
+		Filter:   summary,
 	}, nil
 }
 
 // Discover lists loadouts for the public feed, a community feed, or a profile's shelf.
 // Private loadouts are filtered out unless the viewer owns them.
 func (s *LoadoutService) Discover(ctx context.Context, q core.DiscoverQuery, viewerProfileID string) ([]core.LoadoutSummary, error) {
+	tags, err := core.NormalizeTags(q.Tags)
+	if err != nil {
+		return nil, err
+	}
+	limit := q.Limit
+	if len(tags) > 0 {
+		q.Limit = 0 // The tag check runs here, so the store must not cut the list first.
+	}
 	loadouts, err := s.store.ListLoadouts(ctx, q)
 	if err != nil {
 		return nil, err
@@ -499,8 +535,20 @@ func (s *LoadoutService) Discover(ctx context.Context, q core.DiscoverQuery, vie
 
 	summaries := make([]core.LoadoutSummary, 0, len(loadouts))
 	for _, l := range loadouts {
+		if limit > 0 && len(summaries) >= limit {
+			break
+		}
 		if !l.IsVisibleTo(viewerProfileID) {
 			continue
+		}
+		if len(tags) > 0 {
+			ok, err := s.ownerTaggedAll(ctx, l, tags)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
 		}
 		summary, err := s.Summarize(ctx, l, viewerProfileID)
 		if err != nil {
@@ -738,4 +786,36 @@ func previewNames(entries []core.LoadoutEntry, resolved map[string]core.Resolved
 		}
 	}
 	return names
+}
+
+// ownerTaggedAll reports whether the loadout's owner tagged gear in it with every tag.
+// The owner's tags are the ones that count: a loadout is "#springseattle26" because the
+// person who packed it says so, not because a stranger tagged the same hat.
+func (s *LoadoutService) ownerTaggedAll(ctx context.Context, l core.Loadout, tags []string) (bool, error) {
+	entries, err := s.store.ListLoadoutEntries(ctx, l.ID)
+	if err != nil {
+		return false, err
+	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.ItemID != "" {
+			ids = append(ids, e.ItemID)
+		}
+	}
+	byItem, err := s.store.ProfileTagsForItems(ctx, l.OwnerProfileID, ids)
+	if err != nil {
+		return false, err
+	}
+	present := map[string]bool{}
+	for _, ts := range byItem {
+		for _, t := range ts {
+			present[t] = true
+		}
+	}
+	for _, t := range tags {
+		if !present[t] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
